@@ -272,7 +272,7 @@ default_async_commands = util.table_patch(default_commands, {
 		continue_impl(config, true)
 	end,
 	cancel = function(config)
-		local status, stage_index = default_async_step_get_status(config)
+		local status, stage_index = config.bookkeeping.beginning_status, config.bookkeeping.current_stage_index
 		if status == 'finished' or status == 'startable' then
 			error("step "..status..", nothing left to cancel")
 		end
