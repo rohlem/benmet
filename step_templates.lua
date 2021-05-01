@@ -184,7 +184,7 @@ local async_step_bookkeeping_mt = {
 			return prev_params_pending
 		end,
 		get_current_pending_params = function(self)
-			local params_pending_path = self:get_current_step().pending_sentinel_file_path
+			local params_pending_path = self:get_current_stage().pending_sentinel_file_path
 			local params_pending = self.params_pending
 				or util.file_exists(params_pending_path) and util.read_param_file_new_compat_deserialize(params_pending_path)
 			self.params_pending = params_pending
