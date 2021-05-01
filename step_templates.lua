@@ -271,7 +271,7 @@ default_async_commands = util.table_patch(default_commands, {
 		end
 		assert(status == 'continuable' or status == 'pending', "unreachable: invalid status encountered, don't know how to cancel '"..status.."' async step")
 		if status == 'pending' then
-			config.standard_stages[stage_index].cancel_logic(params_in, config.bookkeeping)
+			config.standard_stages[stage_index].cancel_logic(config.bookkeeping)
 		end
 		util.remove_file_if_exists("./preliminary_params_out.txt")
 		for i = stage_index, 1, -1 do
@@ -306,7 +306,7 @@ default_async_commands = util.table_patch(default_commands, {
 		local previous_stage = config.bookkeeping:get_previous_stage()
 		local ready_check_logic = previous_stage and previous_stage.ready_check_logic
 		if ready_check_logic then
-			ready_check_logic(params_in, config.bookkeeping)
+			ready_check_logic(config.bookkeeping)
 		end
 		
 		local current_stage = config.bookkeeping:get_current_stage()
