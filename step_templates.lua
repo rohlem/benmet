@@ -79,6 +79,16 @@ local standard_step_bookkeeping = function(self, config)
 	self.declared_params_in = config.params_in
 	return setmetatable(self, standard_step_bookkeeping_mt)
 end
+local ensure_params_in_loaded = function(config)
+	local params_in = config.bookkeeping.params_in
+	if not params_in then
+		util.read_param_file_new_compat_deserialize("./params_in.txt")
+		params_in = wrap_table_const(setmetatable(params_in, nonnull_table_mt), "params_in")
+		config.bookkeeping.params_in = params_in
+		assert_in_params_nonempty_except(config.bookkeeping, config.params_in_allowed_empty)
+	end
+	return params_in
+end
 local default_command_fallback = function(command)
 	error("unrecognized command (first argument) '"..command.."'")
 end
@@ -95,10 +105,7 @@ local default_commands = {
 		return 0
 	end,
 	start = function(config)
-		local params_in = util.read_param_file_new_compat_deserialize("./params_in.txt")
-		params_in = wrap_table_const(setmetatable(params_in, nonnull_table_mt), "params_in")
-		config.bookkeeping.params_in = params_in
-		assert_in_params_nonempty_except(config.bookkeeping, config.params_in_allowed_empty)
+		local params_in = ensure_params_in_loaded(config)
 		
 		assert(config.start_logic, "missing custom start logic implementation")(params_in, config.bookkeeping)
 		
@@ -300,8 +307,7 @@ default_async_commands = util.table_patch(default_commands, {
 			assert(called_from_start, "cannot continue startable build step, use 'start' to restart")
 		end
 		
-		local params_in = util.read_param_file_new_compat_deserialize("./params_in.txt")
-		config.bookkeeping.params_in = wrap_table_const(setmetatable(params_in, nonnull_table_mt), "params_in")
+		local params_in = ensure_params_in_loaded(config)
 		
 		local previous_stage = config.bookkeeping:get_previous_stage()
 		local ready_check_logic = previous_stage and previous_stage.ready_check_logic
