@@ -765,7 +765,7 @@ function features.order_commits_into_strands(repository_path, commit_hashes, str
 						end
 						newest_ancestor_i = newest_ancestor_i or #strand-1
 						-- split the strand into one strand that we are fully descendant of and one "sibling" tail that contains none of our ancestors
-						local strand_tail = list_split_in_place_at_return_tail(strand)
+						local strand_tail = util.list_split_in_place_at_return_tail(strand, newest_ancestor_i+1)
 						strand_tail.newer = strand.newer
 						strand.newer = {strand_tail}
 						strand_tail.older = {strand}
