@@ -454,7 +454,7 @@ local rebuild_step_run_dir = function(step_path, step_run_path, active_params, s
 	util.write_param_file_new_compat_serialize(step_run_path.."/params_in.txt", step_run_in_params) -- write params_in file
 end
 -- invokes the 'start' command of a step run directory at the given path for the given parameters is available
-local step_invoke_command_start = function(step_path, step_run_path, cache_hit, hash_collision, active_params, step_run_in_params, special_params)
+local step_invoke_command_start = function(step_name, step_path, step_run_path, cache_hit, hash_collision, active_params, step_run_in_params, special_params)
 	if cache_hit then -- the run directory we want already exists for our parameters
 		local step_status = features.step_query_status(step_name, step_run_path)
 		if step_status == 'finished' then
@@ -516,7 +516,7 @@ function features.step_invoke_command(step_name, command, active_params, step_ru
 	if command_can_create_run_dir then
 		assert(command == 'start', "unimplemented command that can create a run dir: '"..command.."'")
 		-- handles creating the directory and invoking the command
-		return step_invoke_command_start(step_path, step_run_path, cache_hit, hash_collision, active_params, step_run_in_params, special_params)
+		return step_invoke_command_start(step_name, step_path, step_run_path, cache_hit, hash_collision, active_params, step_run_in_params, special_params)
 	end
 
 	-- the remaining commands need the run directory to be created already
