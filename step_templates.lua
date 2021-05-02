@@ -133,30 +133,49 @@ function templates.run_standard_step(config, command, --[[further cmd_args]]...)
 	return command_impl(config)
 end
 
-local default_async_step_get_status = function(config)
+local default_async_step_bookkeeping_query_initial_status = function(config, bookkeeping)
 	local status = util.file_exists("./params_out.txt") and 'finished'
 	local last_stage_index = #config.standard_stages
-	local stage_index = last_stage_index
+	bookkeeping.current_stage_index = last_stage_index
 	if status then
-		return status, stage_index
+		bookkeeping.beginning_status = status
+		return
 	end
 	while true do
-		local current_stage = config.standard_stages[stage_index]
-		if stage_index < 1 then
+		local current_stage = config.standard_stages[bookkeeping.current_stage_index]
+		if bookkeeping.current_stage_index < 1 then
 			status = 'startable'
-		elseif stage_index == last_stage_index and current_stage.is_final_synchronous then
+			bookkeeping.current_stage_index = 1
+		elseif bookkeeping.current_stage_index == last_stage_index and current_stage.is_final_synchronous then
 			-- continue with status == nil
 		elseif util.file_exists(assert(current_stage.completed_sentinel_file_path)) then
 			status = 'continuable'
 		elseif util.file_exists(assert(current_stage.pending_sentinel_file_path)) then
-			status = 'pending'
+			local test_pending_for_error_logic = current_stage.test_pending_for_error_logic
+			if test_pending_for_error_logic then
+				local error_condition = test_pending_for_error_logic(bookkeeping)
+				if error_condition then
+					-- maybe we just missed the stage completing => re-check if it's completed now
+					if util.file_exists(assert(current_stage.completed_sentinel_file_path)) then
+						status = 'continuable'
+					else
+						status = "error: "..tostring(error_condition)
+					end
+				else
+					status = 'pending'
+				end
+			else
+				status = 'pending'
+			end
 		end
-		if status then
-			return status, stage_index
-		end
-		stage_index = stage_index - 1
+		if status then break end
+		bookkeeping.current_stage_index = bookkeeping.current_stage_index - 1
 	end
-	error"unreachable"
+	
+	bookkeeping.beginning_status = status
+	if status == 'continuable' then
+		bookkeeping.current_stage_index = bookkeeping.current_stage_index + 1
+	end
 end
 local async_step_bookkeeping_declare_stage_status = function(self, status)
 	assert(self.current_stage_state_decl == nil, "redeclared async stage status, was previously '"..tostring(self.current_stage_state_decl).."'")
@@ -247,17 +266,11 @@ local async_step_bookkeeping_mt = {
 }
 local async_step_bookkeeping = function(self, config)
 	local self = self or {}
-	local status, stage_index = default_async_step_get_status(config)
+	self = setmetatable(standard_step_bookkeeping(self, config), async_step_bookkeeping_mt)
+	
 	self.standard_stages = config.standard_stages
-	self.beginning_status = status
-	if status ~= 'finished' then
-		self.current_stage_index = stage_index == 0 and 1
-			or stage_index
-				+ (status == 'continuable' and 1
-					or status == 'pending' and 0
-					or error"unreachable")
-	end
-	return setmetatable(standard_step_bookkeeping(self, config), async_step_bookkeeping_mt)
+	default_async_step_bookkeeping_query_initial_status(config, self)
+	return self
 end
 local default_async_commands
 default_async_commands = util.table_patch(default_commands, {
