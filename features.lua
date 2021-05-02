@@ -302,10 +302,10 @@ local step_single_process_params_active_in_special_hash_run_path = function(step
 	local step_run_hash = util.hash_params(step_run_hash_params)
 	local step_run_path = step_path.."/runs/"..step_run_hash
 	
-	-- construct the paths for all requested repositories
-	local step_run_repos = step_run_path.."/repos/"
+	-- construct the paths for all requested repositories, relative to the nesting of any step run directory
+	local step_run_relative_repos = "../../../"..step_name.."/runs/"..step_run_hash.."/repos/"
 	for repo_name, _ in pairs(requested_repos_lookup) do
-		params['REPO-PATH-'..repo_name] = step_run_repos..repo_name.."/"
+		params['REPO-PATH-'..repo_name] = step_run_relative_repos..repo_name.."/"
 	end
 	
 	local step_run_in_params = util.tables_intersect(params, step_input_param_template)
@@ -431,16 +431,25 @@ local rebuild_step_run_dir = function(step_path, step_run_path, active_params, s
 	end
 	
 	-- copy (clone) repositories we need to for the step run
-	local repos_path = relative_path_prefix.."repos/"
-	local step_run_repos = step_run_path.."/repos"
-	util.create_new_directory(step_run_repos)
-	for repo_name, _ in pairs(special_params.requested_repos_lookup) do
-		local repo_path = repos_path..repo_name.."/"
-		local run_repo_path = step_run_repos.."/"..repo_name.."/"
-		-- clone && checkout
-		assert(active_params['REPO-PATH-'..repo_name] == run_repo_path)
-		local commit_hash = active_params['REPO-GITCOMMITHASH-'..repo_name] -- already translated at this point
-		assert(util.execute_command_at("git clone "..util.in_quotes(repo_path).." --mirror --no-checkout && cd "..util.in_quotes(repo_name).." && git checkout "..util.in_quotes(commit_hash), step_run_repos)) -- note: prefixing with `file://` is actually a pessimization, because then git doesn't default to its more efficient `--local` transfer protocol
+	local we_have_repos -- skip this part if we can to avoid FIXME assert below
+	for _ in pairs(special_params.requested_repos_lookup) do
+		we_have_repos = true
+		break
+	end
+	if we_have_repos then
+		local step_run_repos = step_run_path.."/repos"
+		util.create_new_directory(step_run_repos)
+		assert(relative_path_prefix == "./" or relative_path_prefix == "",
+			"FIXME (unimplemented): converting \""..relative_path_prefix.."repos/\" to an absolute path so we can refer to it from within directory \""..step_run_repos.."/(repo_name)/\"")
+		local cwd_absolute = util.get_current_directory()
+		local repos_path = cwd_absolute.."/repos/"
+		for repo_name, _ in pairs(special_params.requested_repos_lookup) do
+			local repo_path = repos_path..repo_name.."/"
+			local run_repo_path = step_run_repos.."/"..repo_name.."/"
+			-- clone && checkout
+			local commit_hash = active_params['REPO-GITCOMMITHASH-'..repo_name] -- already translated at this point
+			assert(util.execute_command_at("git clone "..util.in_quotes(repo_path).." --no-checkout && cd "..util.in_quotes(repo_name).." && git checkout "..util.in_quotes(commit_hash).." --detach", step_run_repos)) -- note: prefixing with `file://` is actually a pessimization, because then git doesn't default to its more efficient `--local` transfer protocol
+		end
 	end
 	
 	-- write all-parameter file used to generate unique metric entries
