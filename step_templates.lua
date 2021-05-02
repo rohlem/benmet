@@ -289,8 +289,8 @@ default_async_commands = util.table_patch(default_commands, {
 		if status == 'finished' or status == 'startable' then
 			error("step "..status..", nothing left to cancel")
 		end
-		assert(status == 'continuable' or status == 'pending', "unreachable: invalid status encountered, don't know how to cancel '"..status.."' async step")
-		if status == 'pending' then
+		-- assert(status == 'continuable' or status == 'pending', "unreachable: invalid status encountered, don't know how to cancel '"..status.."' async step") -- note: no longer correct now that there are error states
+		if status ~= 'continuable' then
 			config.standard_stages[stage_index].cancel_logic(config.bookkeeping)
 		end
 		util.remove_file_if_exists("./preliminary_params_out.txt")
