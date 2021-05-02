@@ -560,7 +560,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 	
 	-- execute steps one by one, abort on error or async step
 	local delayed_error_msg -- instead of calling error, we first want to create a pipeline file in case of failure
-	for step_index, step_count, step_name, active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
+	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
 		-- check for iteration-internal errors
 		if error_trace then
 			delayed_error_msg = error_trace
@@ -586,7 +586,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 			end
 			
 			-- try executing the build step
-			local output, return_status = features.step_invoke_command(step_name, command, active_params, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision)
+			local output, return_status = features.step_invoke_command(step_name, command, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision)
 			if not output then
 				delayed_error_msg = "failed to execute step '"..step_name.."' in pipeline"
 				break
@@ -636,7 +636,7 @@ end
 function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, discard_last_step_and_pipeline)
 	local return_status
 	local all_steps_finished
-	for step_index, step_count, step_name, active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
+	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
 		-- check for iteration-internal error
 		assert(not error_trace, error_trace)
 		
@@ -653,7 +653,7 @@ function features.cancel_pipeline_instance(target_step_name, initial_params, sel
 				local selected = select_pending and was_pending
 					or select_errors and was_error
 				if selected then
-					features.step_invoke_command(step_name, 'cancel', active_params, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision)
+					features.step_invoke_command(step_name, 'cancel', active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision)
 					status = features.step_query_status(step_name, step_run_path)
 					if status ~= 'startable' then
 						print("build step '"..step_name.."' unexpectedly returned status '"..status.."' after cancellation"..(discard_last_step_and_pipeline and ", not deleting run directory in pipeline discard" or ""))
