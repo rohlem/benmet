@@ -14,15 +14,25 @@ local option_param_file = {description = "use the given parameter file as initia
 
 local option_pipeline_default_params = {is_flag = true, description = "add an instance of all-defaulted parameters, as if supplying an empty parameter file"}
 local option_pipeline_all_params = {is_flag = true, description = "select all pipelines regardless of parameters"}
+local option_pipeline_target = {description = "the target step of the pipeline(s)"} --TODO(potentially?): could be made optional if we had a default target step in dependencies.txt
+local option_pipeline_all_targets = {is_flag = true, description = "select all pipelines regardless of targets"}
 
 local option_to_file = {description = "The file to write output to (instead of stdout). Overwrites all previous contents!"}
 
 -- common command structure
 local pipeline_operation_structure_options = {
-		['target'] = {description = "the target step of the pipeline(s)"}, --TODO(potentially?): could be made optional if we had a default target step in dependencies.txt
-		['all-targets'] = {is_flag = true, description = "select all pipelines regardless of targets"},
+		['target'] = option_pipeline_target,
+		['all-targets'] = option_pipeline_all_targets,
 		['default-params'] = option_pipeline_default_params,
 		['all-params'] = option_pipeline_all_params,
+	}
+local pipeline_operation_structure_options_with_error_state_handling = {
+		['target'] = option_pipeline_target,
+		['all-targets'] = option_pipeline_all_targets,
+		['default-params'] = option_pipeline_default_params,
+		['all-params'] = option_pipeline_all_params,
+		['include-errors'] = {is_flag = true, description = "also select pipelines with error status"},
+		['only-errors'] = {is_flag = true, description = "only select pipelines with error status"},
 	}
 
 
@@ -506,23 +516,35 @@ local program_command_structures = {
 	},
 	['pipelines.cancel'] = {any_args_name = 'param-files',
 		summary = "cancel previously-suspended pipeline instances",
-		options = pipeline_operation_structure_options,
+		options = pipeline_operation_structure_options_with_error_state_handling,
 		description = "Constructs all parameter combinations within each supplied multi-value parameter file. For each one, cancels all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is cancelled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation and reverts the step run back to being 'startable'. Note that the affected run directories, as well as the pipeline files, are not deleted however (in contrast to 'pipelines.discard').",
 		implementation = function(features, util, arguments, options)
+			local include_errors = options['include-errors']
+			local only_errors = options['only-errors']
+			
+			local select_pending = not only_errors
+			local select_errors = (include_errors or only_errors)
+			
 			return pipeline_collective_by_individuals_command(features, util, arguments, options, "cancel",
 				function(target_step_name, initial_params, existing_pipeline_file_path)
-					features.cancel_pipeline_instance(target_step_name, initial_params, false)
+					features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, false)
 				end)
 		end,
 	},
 	['pipelines.discard'] = {any_args_name = 'param-files',
 		summary = "discard previously-suspended pipeline instances",
-		options = pipeline_operation_structure_options,
+		options = pipeline_operation_structure_options_with_error_state_handling,
 		description = "Constructs all parameter combinations within each supplied multi-value parameter file. For each one, discards all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is discarded by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation, and its run directory is deleted. In addition, the corresponding pipeline file is also deleted (in contrast to 'pipelines.cancel').",
 		implementation = function(features, util, arguments, options)
+			local include_errors = options['include-errors']
+			local only_errors = options['only-errors']
+			
+			local select_pending = not only_errors
+			local select_errors = (include_errors or only_errors)
+			
 			return pipeline_collective_by_individuals_command(features, util, arguments, options, "discard",
 				function(target_step_name, initial_params, existing_pipeline_file_path)
-					features.cancel_pipeline_instance(target_step_name, initial_params, true)
+					features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, true)
 					-- delete the corresponding pipeline file
 					local pipeline_file_path = features.get_pipeline_file_path(target_step_name, initial_params)
 					util.remove_file(pipeline_file_path)

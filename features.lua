@@ -660,7 +660,7 @@ end
 
 
 -- pipeline features: cancel a pipeline by cancelling its currently-suspended step run in a pipeline, optionally delete that step run's directory
-function features.cancel_pipeline_instance(target_step_name, initial_params, discard_last_step_and_pipeline)
+function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, discard_last_step_and_pipeline)
 	local return_status
 	local all_steps_finished
 	for step_index, step_count, step_name, active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
@@ -675,18 +675,23 @@ function features.cancel_pipeline_instance(target_step_name, initial_params, dis
 		local status = features.step_query_status(step_name, step_run_path)
 		if status ~= 'finished' then
 			local was_pending = status == 'pending'
-			if was_pending then
-				features.step_invoke_command(step_name, 'cancel', active_params, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision)
-				status = features.step_query_status(step_name, step_run_path)
-				if status ~= 'startable' then
-					print("build step '"..step_name.."' unexpectedly returned status '"..status.."' after cancellation"..(discard_last_step_and_pipeline and ", not deleting run directory in pipeline discard" or ""))
-					break
+			local was_error = util.string_starts_with(status, "error")
+			if was_pending or was_error then
+				local selected = select_pending and was_pending
+					or select_errors and was_error
+				if selected then
+					features.step_invoke_command(step_name, 'cancel', active_params, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision)
+					status = features.step_query_status(step_name, step_run_path)
+					if status ~= 'startable' then
+						print("build step '"..step_name.."' unexpectedly returned status '"..status.."' after cancellation"..(discard_last_step_and_pipeline and ", not deleting run directory in pipeline discard" or ""))
+						break
+					end
+					if discard_last_step_and_pipeline then
+						util.remove_directory(step_run_path)
+					end
 				end
 			elseif status ~= 'startable' and status ~= 'continuable' then
 				error("unexpected build status '"..status.."' in step '"..step_name.."', don't know how to cancel pipeline towards step '"..target_step_name.."'")
-			end
-			if discard_last_step_and_pipeline then
-				util.remove_directory(step_run_path)
 			end
 			break
 		end
