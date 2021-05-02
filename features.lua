@@ -156,7 +156,7 @@ local benmet_lua_env_override_table_template = {
 			util.string_starts_with(package.path, "/") -- absolute UNIX path
 				or string.match(package.path, "^%w:[/\\]") -- absolute windows path
 			) and package.path -- we don't need to modify an absolute path
-		or "../../"..package.path -- a little hack-y, but we know that "./step/<step-name>" is exactly 2 nested, and that our relative path is first up in package.path, so prefixing it with "../../" to translate this is works
+		or "../../"..package.path -- a little hack-y, but we know that "./step/<step-name>" is exactly 2 nested, and that our relative path is first up in package.path, so prefixing it with "../../" to translate this works
 }
 -- now in addition to this, we need to add a further prefix if our working directory is nested even deeper (i.e. a run directory)
 local benmet_lua_env_override_tables_by_relative_step_dir_path = {}
@@ -317,42 +317,6 @@ local apply_params_out_onto_in_place = function(step_name, step_run_path, params
 	local params_out = util.read_param_file_new_compat_deserialize(params_out_file_path, "failed to parse 'params_out.txt' of step '"..step_name.."' ('"..step_run_path.."')")
 	return util.table_patch_in_place(params_to_write_to, params_out)
 end
---[[ OLD WAY OF DOING THIS: returns active params, in params, special params, step hash params, run path of the last step run path
-local iterate_through_step_dependency_run_paths = function(target_step_name, params, before_step_f, after_step_f_early_return, before_next_step_f_early_return)
-	local steps_path = relative_path_prefix.."steps/"
-	local step_list = features.step_get_necessary_steps_inclusive(target_step_name)
-	for step_index = 1, #step_list do
-		local step_name = step_list[step_index]
-		local step_path = steps_path..step_name
-		
-		if before_step_f then
-			before_step_f(step_index, step_name, params)
-		end
-		local step_run_in_params, special_params, step_run_hash_params, step_run_path
-		params, step_run_in_params, special_params, step_run_hash_params, step_run_path = step_single_process_params_active_in_special_hash_run_path(step_name, params)
-		if after_step_f_early_return then
-			if after_step_f_early_return(step_index, step_name, step_path, params, step_run_in_params, special_params, step_run_hash_params, step_run_path) then
-				return
-			end
-		end
-		
-		if step_index == #step_list then
-			return params, step_run_in_params, special_params, step_run_hash_params, step_run_path
-		end
-		
-		if before_next_step_f_early_return then
-			if before_next_step_f_early_return(step_index, step_name, step_path, params, step_run_in_params, special_params, step_run_hash_params, step_run_path) then
-				return
-			end
-		end
-		
-		apply_params_out_onto_in_place(step_name, step_run_path, params)
-	end
-	
-	error"unreachable"
-end
-features.iterate_through_step_dependency_run_paths = iterate_through_step_dependency_run_paths
---]]
 -- the "next" / iterator function for new_iterate_step_dependency_run_paths
 -- returns the next step's index, name, and if the previous step's parameters are available, derived parameter and hash values, as well as an error trace about any becoming unavailable
 local new_step_dependency_run_path_iterator_next = function(state, prev_step_index)
