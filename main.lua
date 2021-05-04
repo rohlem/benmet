@@ -16,6 +16,7 @@ local option_pipeline_default_params = {is_flag = true, description = "add an in
 local option_pipeline_all_params = {is_flag = true, description = "select all pipelines regardless of parameters"}
 local option_pipeline_target = {description = "the target step of the pipeline(s)"} --TODO(potentially?): could be made optional if we had a default target step in dependencies.txt
 local option_pipeline_all_targets = {is_flag = true, description = "select all pipelines regardless of targets"}
+local option_pipeline_all = {is_flag = true, shorthand_for = {'all-targets', 'all-params'}, description = "select all pipelines"}
 
 local option_to_file = {description = "The file to write output to (instead of stdout). Overwrites all previous contents!"}
 
@@ -25,12 +26,14 @@ local pipeline_operation_structure_options = {
 		['all-targets'] = option_pipeline_all_targets,
 		['default-params'] = option_pipeline_default_params,
 		['all-params'] = option_pipeline_all_params,
+		['all'] = option_pipeline_all,
 	}
 local pipeline_operation_structure_options_with_error_state_handling = {
 		['target'] = option_pipeline_target,
 		['all-targets'] = option_pipeline_all_targets,
 		['default-params'] = option_pipeline_default_params,
 		['all-params'] = option_pipeline_all_params,
+		['all'] = option_pipeline_all,
 		['include-errors'] = {is_flag = true, description = "also select pipelines with error status"},
 		['only-errors'] = {is_flag = true, description = "only select pipelines with error status"},
 	}
@@ -805,13 +808,17 @@ local help_list_commands = function()
 	end
 end
 
-local help_print_options = function(option_names, from_options, infix)
+local help_print_options = function(option_names, from_options, infix, shorthands_for)
 	table.sort(option_names)
 	for i = 1, #option_names do
 		local option_name = option_names[i]
 		local option_entry = from_options[option_name]
 		local description = option_entry.description
-		print("   --"..option_name..(infix or "")..(description and " : "..description or " (no option description available)"))
+		local description_suffix = description and " : " .. (
+				shorthands_for and description .. " (shorthand for `"..table.concat(shorthands_for[i], " ").."`)"
+				or description
+			) or " (no option description available)"
+		print("   --"..option_name..(infix or "")..description_suffix)
 	end
 end
 
@@ -836,15 +843,21 @@ local help_print_command_details = function(command_name)
 		print("\noptions:")
 		local required_options = {}
 		local normal_options = {}
+		local flag_shorthands = {}
+		local flag_shorthands_for = {}
 		local flag_options = {}
 		for k,v in pairs(command_options) do
 			local add_to = v.required and required_options
-				or v.is_flag and flag_options
+				or v.is_flag and (v.shorthand_for and flag_shorthands or flag_options)
 				or normal_options
 			add_to[#add_to+1] = k
+			if v.shorthand_for then
+				flag_shorthands_for[#flag_shorthands_for+1] = v.shorthand_for
+			end
 		end
 		help_print_options(required_options, command_options, " (required)")
 		help_print_options(normal_options, command_options)
+		help_print_options(flag_shorthands, command_options, " (flag)", flag_shorthands_for)
 		help_print_options(flag_options, command_options, " (flag)")
 	end
 	print()
@@ -905,7 +918,14 @@ while arg_i <= #arg do
 		if option_entry.forward_as_arg or option_entry.is_flag then
 			assert(not option_value, "--option=value syntax not supported for (flag/ forwarded(grouped)) option '"..option_name.."' (FIXME)")
 			if option_entry.is_flag then
-				parsed_options[option_name] = true
+				local shorthand_for = option_entry.shorthand_for
+				if shorthand_for then
+					for i = 1, #shorthand_for do
+						parsed_options[shorthand_for[i]] = true
+					end
+				else
+					parsed_options[option_name] = true
+				end
 				added_to_options = true
 			else
 				assert(option_entry.forward_as_arg)
