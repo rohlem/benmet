@@ -470,16 +470,20 @@ local program_command_structures = {
 					local status = 'finished'
 					local at_run_path = false
 					-- run through all steps and figure out the params and run path (which is based on a hash of the relevant params subset)
-					for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
+					for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
 						if error_trace then
 							print(error_trace)
 							status = 'status-iteration-failure'
 							break
 						end
 						if step_index < step_count then
-							-- check execution status
-							status = features.step_query_status(step_name, step_run_path)
+							status =
+								-- check if the directory exists; note that a hash collision would have resulted in error_trace above
+								not cache_hit and 'startable'
+								-- check execution status
+								or features.step_query_status(step_name, step_run_path)
 							if status ~= 'finished' then
+								status = status
 								at_run_path = step_run_path
 								break
 							end
