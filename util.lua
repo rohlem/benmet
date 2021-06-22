@@ -813,6 +813,24 @@ util.debug_detail_level = 0
 			return gitcommithash
 		end
 		
+		function util.get_commit_hash_timestamp_tags_of(repository_path, git_commit_expr)
+			git_commit_expr = util.in_quotes(git_commit_expr)
+			local successful, exit_type, return_status, program_output = util.execute_command_at("git log -n1 --date=iso-strict --decorate=short "..git_commit_expr, repository_path)
+			assert(successful, "git log failed (maybe not in a git repository?)")
+			local gitcommithash, rest_of_first_line, commit_timestamp = string.match(program_output, "^commit%s*(%S+)([^\n]*).*Date:%s*([^\n]*)")
+			
+			-- parse refs string for tags
+			local tags = {}
+			local refs_string = string.match(rest_of_first_line, "%s*%(([^%)]*)%)")
+			if refs_string then
+				for tag_name in string.gmatch(refs_string, "tag: ([^,]*)") do
+					tags[#tags+1] = tag_name
+				end
+			end
+			
+			return gitcommithash, commit_timestamp, tags
+		end
+		
 		function util.get_current_commit_hash(repository_path)
 			return util.get_commit_hash_of(repository_path, 'HEAD')
 		end

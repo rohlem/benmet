@@ -638,17 +638,27 @@ local program_command_structures = {
 			
 			-- translate commit expressions into hashes and de-duplicate them
 			local commit_expression_list_has = {}
+			local commit_info_lookup_by_hash = {}
+			local tags_lookup_by_hash = {}
 			local commit_hash_list = {}
 			local hash_list_has = {}
 			for i = 1, #commit_expression_list do
 				local commit_expression = commit_expression_list[i]
 				if not commit_expression_list_has[commit_expression] then
 					commit_expression_list_has[commit_expression] = true
-					local successful, hash = pcall(util.get_commit_hash_of, repository_path, commit_expression)
+					local successful, hash, timestamp, tags = pcall(util.get_commit_hash_timestamp_tags_of, repository_path, commit_expression)
 					if successful then
 						if not hash_list_has[hash] then
 							hash_list_has[hash] = true
 							commit_hash_list[#commit_hash_list+1] = hash
+							commit_info_lookup_by_hash[hash] = {
+								expression = commit_expression,
+								timestamp = timestamp,
+								tags = tags,
+							}
+							if #tags > 0 then
+								print("Info: commit '"..commit_expression.."' (hash '"..hash.."') has multiple tags: "..table.concat(tags, ", "))
+							end
 						end
 					else
 						print("Warning: failed to look up commit hash of commit expression '"..commit_expression.."'")
@@ -662,7 +672,18 @@ local program_command_structures = {
 			local commit_ordering = ""
 			for i = 1, #commit_strands do
 				commit_ordering = commit_ordering.."==== ordered commit strand of repository '"..repository_name.."'\n"
-				..param_name.."="..table.concat(commit_strands[i], "\n"..param_name.."=").."\n"
+				local strand = commit_strands[i]
+				for i = 1, #strand do
+					local hash = strand[i]
+					local info = assert(commit_info_lookup_by_hash[hash], "unreachable: encountered commit without info")
+					commit_ordering = commit_ordering
+						.. "REPO-git-commit-expression-"..repository_name.."="..info.expression.."\n"
+						.. "REPO-git-commit-timestamp-"..repository_name.."="..info.timestamp.."\n"
+					for i = 1, #info.tags do
+						commit_ordering = commit_ordering .. "REPO-git-commit-tag-"..repository_name.."="..info.tags[i].."\n"
+					end
+					commit_ordering = commit_ordering .. param_name.."="..hash.."\n"
+				end
 			end
 			-- write the output file
 			util.write_full_file(output_file_path, commit_ordering)
