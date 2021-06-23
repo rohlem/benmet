@@ -1,11 +1,7 @@
+-- imports from other libraries, assigned at the end
 local md5
-do
-	local found, sha2 = pcall(require, "pure_lua_SHA.sha2")
-	if not found then
-		error("Could not find Lua module `pure_lua_SHA.sha2`. Please clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git into ".._G._main_script_path.."/..")
-	end
-	md5 = sha2.md5
-end
+local json_encode, json_decode
+
 
 local util = {}
 util.debug_detail_level = 0
@@ -896,5 +892,32 @@ util.debug_detail_level = 0
 		end
 
 util.debug_detail_level = actual_debug_detail_level
+
+do
+	local found, sha2 = pcall(require, "pure_lua_SHA.sha2")
+	if not found then
+		error("Could not find Lua module `pure_lua_SHA.sha2`. Please clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git into ".._G._main_script_path.."/..")
+	end
+	md5 = sha2.md5
+end
+do
+	package.path = _G._main_script_path.."../lunajson/src/?.lua;"..package.path
+	local found, lunajson = pcall(require, "lunajson")
+	if not found then
+		error("Could not find Lua module `lunajson`. Please clone https://github.com/grafi-tt/lunajson.git into ".._G._main_script_path.."/..")
+	end
+	--[=[lunajson.encode(value, [nullv]):
+		Encode value into a JSON string and return it. If nullv is specified, values equal to nullv will be encoded as null.
+		This function encodes a table t as a JSON array if a value t[1] is present or a number t[0] is present. If t[0] is present, its value is considered as the length of the array. Then the array may contain nil and those will be encoded as null. Otherwise, this function scans non nil values starting from index 1, up to the first nil it finds. When the table t is not an array, it is an object and all of its keys must be strings.
+	--]=]
+	json_encode = lunajson.encode
+	--[=[lunajson.decode(jsonstr, [pos, [nullv, [arraylen]]]):
+		Decode jsonstr. If pos is specified, it starts decoding from pos until the JSON definition ends, otherwise the entire input is parsed as JSON. null inside jsonstr will be decoded as the optional sentinel value nullv if specified, and discarded otherwise. If arraylen is true, the length of an array ary will be stored in ary[0]. This behavior is useful when empty arrays should not be confused with empty objects.
+		This function returns the decoded value if jsonstr contains valid JSON, otherwise an error will be raised. If pos is specified it also returns the position immediately after the end of decoded JSON.
+	--]=]
+	json_decode = lunajson.decode
+end
+util.json_encode = json_encode
+util.json_decode = json_decode
 
 return util
