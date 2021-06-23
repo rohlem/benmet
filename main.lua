@@ -705,61 +705,17 @@ local program_command_structures = {
 			end
 			local output_file = assert(io.open(output_file_path, 'w+b'))
 			
-			-- tables for caching string operations
-			local json_escapes_table = {["\\"] = "\\\\", ["\""] = "\\\""} -- what to translate to escape string contents (FIXME: not UTF-8 safe at all I think)
-			local json_escaped_strings = {} -- caches strings that are inserted exactly as-is
-			local json_escaped_first_keys = {} -- caches first keys that are inserted followed by a colon
-			local json_escaped_subsequent_keys = {} -- caches subsequent keys that are inserted following a comma and followed by a colon
-			
-			local string_gsub = string.gsub
-			local table_unpack = table.unpack or unpack
-			local not_first_entry
+			local all_metrics = {}
 			for i = 1, #arguments do
 				local metrics = util.read_multientry_param_file_new_compat_deserialize(arguments[i])
 				if not metrics then
 					error("failed to read metrics file")
 				end
-				local to_write = {}
 				for entry_i = 1, #metrics do
-					to_write[#to_write+1] = not_first_entry and ",{" or "[{"
-					not_first_entry = true
-					local not_first_property
-					for k,v in pairs(metrics[entry_i]) do
-						local ek
-						if not_first_property then
-							ek = json_escaped_subsequent_keys[k]
-						else
-							ek = json_escaped_first_keys[k]
-						end
-						if not ek then
-							ek = json_escaped_strings[k]
-							if not ek then
-								ek = "\""..string_gsub(k, "[\\\"]", json_escapes_table).."\""
-								json_escaped_strings[k] = ek
-							end
-							if not_first_property then
-								ek = ","..ek..":"
-								json_escaped_subsequent_keys[k] = ek
-							else
-								ek = ek..":"
-								json_escaped_first_keys[k] = ek
-							end
-						end
-						to_write[#to_write+1] = ek
-						
-						local ev = json_escaped_strings[v]
-						if not ev then
-							ev = "\""..string_gsub(v, "[\\\"]", json_escapes_table).."\""
-							json_escaped_strings[v] = ev
-						end
-						to_write[#to_write+1] = ev
-						not_first_property = true
-					end
-					to_write[#to_write+1] = "}"
+					all_metrics[#all_metrics+1] = metrics[entry_i]
 				end
-				assert(output_file:write(table_unpack(to_write)))
 			end
-			assert(output_file:write(not_first_entry and "]" or "[]"))
+			assert(output_file:write(util.json_encode(all_metrics)))
 			assert(output_file:close())
 			
 			print("finished export to file '"..output_file_path.."'")
