@@ -605,7 +605,7 @@ local program_command_structures = {
 			end
 			
 			local output_file_path = options['to-file'][1]
-				or relative_path_prefix.."commit-ordering-"..repository_name..".txt"
+				or relative_path_prefix.."commit-ordering-"..repository_name..".json"
 			local output_file_path_already_existed = util.file_exists(output_file_path)
 			
 			-- read commit expressions from all values in all files
@@ -636,10 +636,10 @@ local program_command_structures = {
 				end
 			end
 			
-			-- translate commit expressions into hashes and de-duplicate them
+			-- translate commit expressions into hashes by looking up their commit info, and de-duplicate them
 			local commit_expression_list_has = {}
 			local commit_info_lookup_by_hash = {}
-			local tags_lookup_by_hash = {}
+			local commit_expression_lookup_by_hash = {} -- lookup table of all commit expressions used to get a particular hash
 			local commit_hash_list = {}
 			local hash_list_has = {}
 			for i = 1, #commit_expression_list do
@@ -651,42 +651,43 @@ local program_command_structures = {
 						if not hash_list_has[hash] then
 							hash_list_has[hash] = true
 							commit_hash_list[#commit_hash_list+1] = hash
+							tags[0] = #tags -- add a "length" field for the JSON encoding library to recognize it as an array, even if empty
 							commit_info_lookup_by_hash[hash] = {
-								expression = commit_expression,
 								timestamp = timestamp,
 								tags = tags,
 							}
-							if #tags > 0 then
-								print("Info: commit '"..commit_expression.."' (hash '"..hash.."') has multiple tags: "..table.concat(tags, ", "))
-							end
+							commit_expression_lookup_by_hash[hash] = {}
 						end
+						commit_expression_lookup_by_hash[hash][commit_expression] = true
 					else
 						print("Warning: failed to look up commit hash of commit expression '"..commit_expression.."'")
 					end
 				end
 			end
+			-- turn commit expression lookup tables into lists
+			for hash, info_entry in pairs(commit_info_lookup_by_hash) do
+				local commit_expressions = util.table_keys_list(commit_expression_lookup_by_hash[hash])
+				commit_expressions[0] = #commit_expressions -- add a "length" field for the JSON encoding library to recognize it as an array, even if empty
+				info_entry['commit-expressions'] = commit_expressions
+			end
 			
 			-- order commit hashes
-			local commit_strands = features.order_commits_into_strands(repository_path, commit_hash_list, max_strands)
-			-- format them as desired
-			local commit_ordering = ""
-			for i = 1, #commit_strands do
-				commit_ordering = commit_ordering.."==== ordered commit strand of repository '"..repository_name.."'\n"
-				local strand = commit_strands[i]
-				for i = 1, #strand do
-					local hash = strand[i]
-					local info = assert(commit_info_lookup_by_hash[hash], "unreachable: encountered commit without info")
-					commit_ordering = commit_ordering
-						.. "REPO-git-commit-expression-"..repository_name.."="..info.expression.."\n"
-						.. "REPO-git-commit-timestamp-"..repository_name.."="..info.timestamp.."\n"
-					for i = 1, #info.tags do
-						commit_ordering = commit_ordering .. "REPO-git-commit-tag-"..repository_name.."="..info.tags[i].."\n"
-					end
-					commit_ordering = commit_ordering .. param_name.."="..hash.."\n"
+			local successful, commit_strands = pcall(features.order_commits_into_strands, repository_path, commit_hash_list, max_strands)
+			if not successful then
+				if string.match(commit_strands, "given commits are not strictly ordered in a single strand") then
+					commit_strands = commit_strands.."\n(supply option --max-strands=<N> if multiple strands are desired/expected)"
 				end
+				error(commit_strands)
 			end
+			-- output as json
+			local json_payload = {["repository-infos"] = {
+				[repository_name] = {
+					['commit-info-by-hash'] = commit_info_lookup_by_hash,
+					['commit-strands'] = commit_strands,
+				}
+			}}
 			-- write the output file
-			util.write_full_file(output_file_path, commit_ordering)
+			util.write_full_file(output_file_path, util.json_encode(json_payload))
 			print((output_file_path_already_existed and "overwrote previous" or "wrote new")
 				.. " output file '"..output_file_path.."'")
 		end,
