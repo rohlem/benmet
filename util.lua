@@ -167,6 +167,13 @@ util.debug_detail_level = 0
 				end
 			end
 		end
+		function util.table_keys_list(t)
+			local keys = {}
+			for k in pairs(t) do
+				keys[#keys+1] = k
+			end
+			return keys
+		end
 		
 		function util.tables_intersect(values_from, keys_from)
 			local result = {}
