@@ -6,6 +6,17 @@ It handles argument parsing and implements the program's commands using the modu
 local relative_path_prefix = "./"
 _G.relative_path_prefix = relative_path_prefix
 
+
+do -- set up package.path for importing other benmet code via `require`
+	local main_script_path = string.match(arg[0], "^(.-)[^/%\\]+[/%\\]*$")
+	main_script_path = #main_script_path > 0 and main_script_path or "."
+	package.path = main_script_path.."/../?.lua;;"
+	
+	_G._main_script_path = main_script_path -- used in an error message in benmet.util if `pure_lua_SHA.sha2` is not found
+end
+
+
+
 -- declaration of program argument structure
 
 -- common options
@@ -732,16 +743,6 @@ local program_command_structures = {
 		end,
 	},
 }
-
-
-
-do -- set up package.path for importing other benmet code via `require`
-	local main_script_path = string.match(arg[0], "^(.-)[^/%\\]+[/%\\]*$")
-	main_script_path = #main_script_path > 0 and main_script_path or "."
-	package.path = main_script_path.."/../?.lua;;"
-	
-	_G._main_script_path = main_script_path -- used in an error message in benmet.util if `pure_lua_SHA.sha2` is not found
-end
 
 
 
