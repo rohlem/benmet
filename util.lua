@@ -11,7 +11,6 @@ do
 	md5 = sha2.md5
 end
 do
-	package.path = main_script_dir_path.."../lunajson/src/?.lua;"..package.path
 	local found, lunajson = pcall(require, "lunajson")
 	if not found then
 		error("Could not find Lua module `lunajson`. Please clone https://github.com/grafi-tt/lunajson.git into "..main_script_dir_path.."/..")
