@@ -900,18 +900,19 @@ util.debug_detail_level = 0
 
 util.debug_detail_level = actual_debug_detail_level
 
+local main_script_dir_path = _G.benmet_main_script_dir_path
 do
 	local found, sha2 = pcall(require, "pure_lua_SHA.sha2")
 	if not found then
-		error("Could not find Lua module `pure_lua_SHA.sha2`. Please clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git into ".._G._main_script_path.."/..")
+		error("Could not find Lua module `pure_lua_SHA.sha2`. Please clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git into "..main_script_dir_path.."/..")
 	end
 	md5 = sha2.md5
 end
 do
-	package.path = _G._main_script_path.."../lunajson/src/?.lua;"..package.path
+	package.path = main_script_dir_path.."../lunajson/src/?.lua;"..package.path
 	local found, lunajson = pcall(require, "lunajson")
 	if not found then
-		error("Could not find Lua module `lunajson`. Please clone https://github.com/grafi-tt/lunajson.git into ".._G._main_script_path.."/..")
+		error("Could not find Lua module `lunajson`. Please clone https://github.com/grafi-tt/lunajson.git into "..main_script_dir_path.."/..")
 	end
 	--[=[lunajson.encode(value, [nullv]):
 		Encode value into a JSON string and return it. If nullv is specified, values equal to nullv will be encoded as null.

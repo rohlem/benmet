@@ -5,7 +5,7 @@ This file implements all "actual logic" of benmet, using platform specific funct
 -- IMPORTANT GLOBAL ASSUMPTION THAT SHOULD BE DOCUMENTED SOMEWHERE:
 -- If a step's run directory contains "params_out.txt", it is in a finished status.
 
-local relative_path_prefix = _G.relative_path_prefix
+local relative_path_prefix = _G.benmet_relative_path_prefix
 
 local util = require "benmet.util"
 util.debug_detail_level = 4
