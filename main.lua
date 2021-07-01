@@ -54,6 +54,7 @@ local help_list_commands = function()
 		'commit-ordering',
 		'metrics-to-json',
 		'test-command',
+		'test-script',
 	}
 	
 	local actual_commands = {} -- shallow table copy

@@ -757,6 +757,17 @@ local program_command_structures = {
 			return util.execute_command(command_line)
 		end,
 	},
+	['test-script'] = {any_args_name = "command-fragments", any_args_min = 1, allow_anything_as_args_verbatim = true,
+		summary = "test a Lua script invocation",
+		description = "execute the given Lua script inside this Lua state and report its return status as if it were an external program",
+		implementation = function(features, util, arguments, options)
+			local script_path = arguments[1]
+			local script_args = util.table_copy_shallow(arguments)
+			table.remove(script_args, 1)
+			util.debug_detail_level = math.max(util.debug_detail_level, 3)
+			return util.execute_lua_script_as_if_program(script_path, script_args)
+		end,
+	},
 }
 
 return program_command_structures
