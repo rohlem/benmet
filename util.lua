@@ -561,7 +561,7 @@ util.debug_detail_level = 0
 			end
 		end
 		function util.relative_prefixed_package_path(relative_prefix)
-			local prefixed_elements = util.table_copy_shallow(package_path_elements)
+			local prefixed_elements = table_copy_shallow(package_path_elements)
 			for i = 1, #relative_package_path_element_indices do
 				local index = relative_package_path_element_indices[i]
 				prefixed_elements[index] = relative_prefix..prefixed_elements[index]
