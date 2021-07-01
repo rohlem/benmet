@@ -2,18 +2,20 @@
 local md5
 local json_encode, json_decode
 
-local main_script_dir_path = assert(_G.benmet_main_script_dir_path)
+local main_script_dir_path = _G.benmet_main_script_dir_path
+local clone_dir_hint = main_script_dir_path and "into "..main_script_dir_path.."/.."
+	or "next to 'benmet' (this file's parent directory)"
 do
 	local found, sha2 = pcall(require, "pure_lua_SHA.sha2")
 	if not found then
-		error("Could not find Lua module `pure_lua_SHA.sha2`. Please clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git into "..main_script_dir_path.."/..")
+		error("Could not find Lua module `pure_lua_SHA.sha2`. Please clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git "..clone_dir_hint)
 	end
 	md5 = sha2.md5
 end
 do
 	local found, lunajson = pcall(require, "lunajson")
 	if not found then
-		error("Could not find Lua module `lunajson`. Please clone https://github.com/grafi-tt/lunajson.git into "..main_script_dir_path.."/..")
+		error("Could not find Lua module `lunajson`. Please clone https://github.com/grafi-tt/lunajson.git "..clone_dir_hint)
 	end
 	--[=[lunajson.encode(value, [nullv]):
 		Encode value into a JSON string and return it. If nullv is specified, values equal to nullv will be encoded as null.
