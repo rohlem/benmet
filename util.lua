@@ -45,18 +45,25 @@ util.incdl, util.decdl = incdl, decdl
 local actual_debug_detail_level = util.debug_detail_level
 util.debug_detail_level = 0
 	-- debugging, logging
-		function util.debugprint(x, indent, level)
+		function util.debugprint(x, indent, level, already_visited)
 			if (level or util.debug_detail_level) <= detail_level then return end --skip if we're too deep already
 			indent = indent or string.rep(" ", detail_level)
 			if type(x) ~= 'table' then
-				print(indent..x)
+				print(indent..(type(x) == 'string' and string.format("%q", x) or tostring(x)))
 				return
 			end
-			print(indent .. "{")
+			already_visited = already_visited or {0}
+			if already_visited[x] then
+				print(indent .. already_visited[x])
+				return
+			end
+			already_visited[x] = "(table #"..already_visited[1]..")"
+			already_visited[1] = already_visited[1]+1
+			print(indent .. already_visited[x] .. " = {")
 			for k,v in pairs(x) do
-				util.debugprint(k, indent .. " ")
+				util.debugprint(k, indent .. " ", level, already_visited)
 				print(indent .. "=>")
-				util.debugprint(v, indent .. " ")
+				util.debugprint(v, indent .. " ", level, already_visited)
 				print(indent .. ",")
 			end
 			print(indent .. "}")
