@@ -131,19 +131,29 @@ util.debug_detail_level = 0
 			return result
 		end
 		util.table_copy_shallow = table_copy_shallow
-		local function table_copy_deep_non_recursive(t)
-			local result
-			if t then
-				result = {}
-				local type = type
-				for k,v in pairs(t) do
-					result[k] = type(v) == 'table' and table_copy_deep_non_recursive(v)
-						or v
+		local function table_copy_deep_impl(t, copy, copy_lookup, type_f)
+			for k,v in pairs(t) do
+				local copy_v = copy_lookup[v]
+				if copy_v == nil then
+					if type_f(v) ~= 'table' then
+						copy_v = v
+						copy_lookup[v] = copy_v
+					else
+						copy_v = {}
+						copy_lookup[v] = copy_v
+						table_copy_deep_impl(v, copy_v, copy_lookup, type_f)
+					end
 				end
+				copy[k] = copy_v
 			end
-			return result
+			return copy
 		end
-		util.table_copy_deep = table_copy_deep_non_recursive
+		local table_copy_deep = function(t)
+			if not t then return nil end
+			local copy = {}
+			return table_copy_deep_impl(t, copy, {[t] = copy}, type)
+		end
+		util.table_copy_deep = table_copy_deep
 		local function table_patch_in_place(instance_to_patch, patch, --[[patches]] ...)
 			if not patch then return instance_to_patch end
 			for k,v in pairs(patch) do
@@ -153,7 +163,7 @@ util.debug_detail_level = 0
 		end
 		util.table_patch_in_place = table_patch_in_place
 		function util.table_patch(original, --[[patches]] ...)
-			return table_patch_in_place(table_copy_deep_non_recursive(original), ...)
+			return table_patch_in_place(table_copy_deep(original), ...)
 		end
 		
 		function util.tables_shallow_equal(a, b)
