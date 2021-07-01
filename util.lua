@@ -49,7 +49,7 @@ util.debug_detail_level = 0
 			if (level or util.debug_detail_level) <= detail_level then return end --skip if we're too deep already
 			indent = indent or string.rep(" ", detail_level)
 			if type(x) ~= 'table' then
-				print(indent..(type(x) == 'string' and string.format("%q", x) or tostring(x)))
+				print(indent..(--[[type(x) == 'string' and string.format("%q", x) or]] tostring(x)))
 				return
 			end
 			already_visited = already_visited or {0}
