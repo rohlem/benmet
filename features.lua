@@ -149,20 +149,15 @@ end
 
 
 -- step features: direct/simple command execution
--- environment overrides the Lua scripts we execute expect/need
-local benmet_lua_env_override_table_template = {
-	-- allows 'require' to find our modules, mainly 'benmet.util'
-	LUA_PATH = (
-			util.string_starts_with(package.path, "/") -- absolute UNIX path
-				or string.match(package.path, "^%w:[/\\]") -- absolute windows path
-			) and package.path -- we don't need to modify an absolute path
-		or "../../"..package.path -- a little hack-y, but we know that "./step/<step-name>" is exactly 2 nested, and that our relative path is first up in package.path, so prefixing it with "../../" to translate this works
+-- environment overrides for the Lua scripts we execute (we need variants by working directory)
+local benmet_lua_env_override_tables_by_relative_step_dir_path = {
+	["./"] = {
+			LUA_PATH = util.relative_prefixed_package_path("../../"), -- "./steps/<step-name>" is exactly 2 nested
+		},
+	["../../"] = {
+			LUA_PATH = util.relative_prefixed_package_path("../../../../"), -- "./steps/<step-name>/runs/<param-hash>" is exactly 4 nested
+		},
 }
--- now in addition to this, we need to add a further prefix if our working directory is nested even deeper (i.e. a run directory)
-local benmet_lua_env_override_tables_by_relative_step_dir_path = {}
-benmet_lua_env_override_tables_by_relative_step_dir_path["./"] = util.table_copy_shallow(benmet_lua_env_override_table_template)
-benmet_lua_env_override_tables_by_relative_step_dir_path["../../"] = util.table_copy_shallow(benmet_lua_env_override_table_template)
-benmet_lua_env_override_tables_by_relative_step_dir_path["../../"].LUA_PATH = "../../"..benmet_lua_env_override_tables_by_relative_step_dir_path["../../"].LUA_PATH
 -- directly invoke the given command of the given step at the given path (step run directory)
 local step_invoke_command_raw = function(at_path, command, relative_step_dir_path)
 	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.lua_program.." "..util.in_quotes(relative_step_dir_path.."run.lua").." "..command, benmet_lua_env_override_tables_by_relative_step_dir_path[relative_step_dir_path], at_path)

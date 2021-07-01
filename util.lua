@@ -73,6 +73,15 @@ util.debug_detail_level = 0
 			return (string.sub(s, 1, #prefix) == prefix) and string.sub(s, #prefix+1)
 		end
 		
+		-- returns list of substrings that do not contain delimiter_char
+		function util.string_split(s, delimiter_char)
+			local segments = {}
+			for segment in string.gmatch(s, "[^%"..delimiter_char.."]*") do
+				segments[#segments+1] = segment
+			end
+			return segments
+		end
+		
 		util.cut_trailing_space = function(s)
 			return string.match(s, ".*%S") or ""
 		end
@@ -507,6 +516,40 @@ util.debug_detail_level = 0
 			return md5(util.new_compat_serialize(params))
 		end
 	
+	-- path operations
+		-- note: this is a conservative approach that reports both
+		-- paths that would be UNIX-absolute and paths that would be Windows-absolute,
+		-- regardless of what system you're on, which may help with stuff like Wine and MSYS-shells
+		function util.path_is_absolute(path)
+			return util.string_starts_with(path, "/") -- absolute UNIX path
+				or string.match(path, "^%w:[/\\]") -- absolute Windows path
+		end
+		
+		function util.get_last_path_segment(path)
+			return string.match(path, "([^/%\\]+)[/%\\]*$")
+		end
+		
+	-- Lua stuff (for launching subprocesses):
+		-- For 'require' within the step scripts to find our modules, mainly 'benmet.util' and 'benmet.step_templates',
+		-- we want to execute the script with a package path pointing to the same directories,
+		-- so relative paths need to be adjusted to nesting.
+		local package_path_elements = util.string_split(package.path, ";")
+		local relative_package_path_element_indices = {}
+		for i = 1, #package_path_elements do
+			local e = package_path_elements[i]
+			if #e > 0 and not util.path_is_absolute(e) then
+				relative_package_path_element_indices[#relative_package_path_element_indices+1] = i
+			end
+		end
+		function util.relative_prefixed_package_path(relative_prefix)
+			local prefixed_elements = util.table_copy_shallow(package_path_elements)
+			for i = 1, #relative_package_path_element_indices do
+				local index = relative_package_path_element_indices[i]
+				prefixed_elements[index] = relative_prefix..prefixed_elements[index]
+			end
+			return table.concat(prefixed_elements, ";")
+		end
+		
 	-- file system
 		util.get_current_directory = util.find_program("pwd") and function()
 				incdl()
@@ -605,10 +648,6 @@ util.debug_detail_level = 0
 		end
 		
 		util.remove_file_if_exists = util.remove_file_if_exists_return_existed
-		
-		function util.get_last_path_segment(path)
-			return string.match(path, "([^/%\\]+)[/%\\]*$")
-		end
 		
 		function util.ensure_file_in_directories(path)
 			util.logprint("ensuring file in directory: "..path)
