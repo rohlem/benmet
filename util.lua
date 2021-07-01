@@ -148,10 +148,13 @@ util.debug_detail_level = 0
 			end
 			return copy
 		end
+		local table_copy_deep_into = function(t, result)
+			if not t then return result end
+			return table_copy_deep_impl(t, result, {[t] = result}, type)
+		end
 		local table_copy_deep = function(t)
 			if not t then return nil end
-			local copy = {}
-			return table_copy_deep_impl(t, copy, {[t] = copy}, type)
+			return table_copy_deep_into(t, {})
 		end
 		util.table_copy_deep = table_copy_deep
 		local function table_patch_in_place(instance_to_patch, patch, --[[patches]] ...)
