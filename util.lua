@@ -521,16 +521,6 @@ util.debug_detail_level = 0
 			return combinatorial_iterator_impl, {multivalue_entries, nil, #multivalue_entries}, nil
 		end
 		
-		util.lua_program = util.find_program("lua53")
-			or util.find_program("lua5.3")
-			or util.find_program("lua")
-		function util.execute_lua_script(arg_line)
-				incdl()
-					local program_success, exit_type, return_status, program_output = assert(util.execute_command(util.lua_program.." "..arg_line))
-				decdl()
-				return program_success, exit_type, return_status, program_output
-			end
-		
 		function util.hash_params(params)
 			return md5(util.new_compat_serialize(params))
 		end
@@ -567,6 +557,101 @@ util.debug_detail_level = 0
 				prefixed_elements[index] = relative_prefix..prefixed_elements[index]
 			end
 			return table.concat(prefixed_elements, ";")
+		end
+		
+		util.lua_program = util.find_program("lua53")
+			or util.find_program("lua5.3")
+			or util.find_program("lua")
+		
+		-- the template table that is copied to be the _G of executed Lua scripts
+		-- note: this does not provide complete isolation, mainly stdin/stderr are still shared (could be closed),
+		-- and some debug functions like debug.setmetatable could do mean things (but reengineering them under open-world assumption is pretty involved)
+		local lua_script_spoofed_G_template = table_copy_deep(_G)
+		lua_script_spoofed_G_template._G = lua_script_spoofed_G_template._G
+		lua_script_spoofed_G_template.arg = nil
+		-- os.exit becomes coroutine.yield, the script is run as a coroutine so we can stop execution upon this being called
+		lua_script_spoofed_G_template.os.exit = lua_script_spoofed_G_template.coroutine.yield
+		-- print collects all printed strings into a table to be concatenated after execution
+		local lua_script_spoofed_output_fragments
+		local lua_script_spoofed_print = function(--[[args]]...)
+				local args_list = {--[[args]]...}
+				local n = #lua_script_spoofed_output_fragments
+				for i = 1, #args_list do
+					lua_script_spoofed_output_fragments[n+i] = tostring(args_list[i])
+				end
+				lua_script_spoofed_output_fragments[n + #args_list + 1] = "\n"
+			end
+		lua_script_spoofed_G_template.print = lua_script_spoofed_print
+		-- TODO: also wrap io functions on io.stdout and io.stdout itself to add to lua_script_spoofed_output_fragments
+		
+		function util.execute_lua_script_as_if_program(path, args_list)
+			assert(path, "no lua script path given to util.execute_lua_script_as_if_program")
+			util.logprint("executing Lua script \""..path.."\" as program with args: "..table.concat(args_list, " "))
+			incdl()
+				-- set up a "spoofed" global _G environment table
+				local spoofed_G = table_copy_deep(lua_script_spoofed_G_template)
+				spoofed_G.arg = table_copy_shallow(args_list)
+				
+				-- load the script
+				local loaded_script, loading_error
+				if not setfenv then -- if setfenv is no longer present, we're in Lua verison 5.2 or higher and 'loadfile' sets the environment
+					loaded_script, loading_error = loadfile(path, 't', spoofed_G)
+				else -- is setfenv is present, we need to set the environment afterwards
+					loaded_script, loading_error = loadfile(path)
+					if loaded_script then
+						setfenv(loaded_script, spoofed_G)
+					end
+				end
+				if not loaded_script then
+					util.debugprint("failed to load the script: "..loading_error)
+					decdl()
+					return false, 'exit', 1, loading_error
+				end
+				
+				lua_script_spoofed_output_fragments = {}
+				
+				-- run the script as a coroutine, so we can stop its execution upon call to its os.exit (-> coroutine.yield)
+				local script_coroutine = coroutine.create(loaded_script)
+				local successful, return_code_or_run_error = coroutine.resume(script_coroutine, (table.unpack or unpack)(args_list))
+				
+				local script_output = table.concat(lua_script_spoofed_output_fragments)
+				util.debugprint("the script wrote: "..script_output)
+				
+				if not successful then
+					util.debugprint("the script errored: "..return_code_or_run_error)
+					-- authentic behaviour would be to also call
+					-- io.stderr:write(return_code_or_run_error)
+					-- but additionally installing debug.traceback as error handler beforehand (in a wrapper function, or however else you do that on a coroutine)
+					decdl()
+					return false, 'exit', 1, return_code_or_run_error
+				end
+				
+				lua_script_spoofed_output_fragments = nil
+				
+				if coroutine.status(script_coroutine) ~= 'suspended' then -- the script's body finished, report success (we explicitly any value it returned)
+					util.debugprint("the script finished execution")
+					util.debugprint("it succeeded by 'exit' with status 0")
+					decdl()
+					return script_success, 'exit', return_status, script_output
+				end
+				
+				-- it called its os.exit (-> coroutine.yield), report the return code
+				util.debugprint("the script called os.exit")
+				local script_success, return_status
+				if type(return_code_or_run_error) == 'boolean' then
+					script_success = return_code_or_run_error
+					return_status = script_success and 0 or 1
+				elseif type(return_code_or_run_error) == 'number' then
+					return_status = return_code_or_run_error
+					script_success = return_status == 0
+				else
+					script_success = true
+					return_status = 0
+				end
+				
+				util.debugprint("it "..(script_success and "succeeded" or "failed").." by 'exit' with status "..return_status)
+			decdl()
+			return script_success, 'exit', return_status, script_output
 		end
 		
 	-- file system
