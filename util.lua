@@ -918,6 +918,28 @@ util.debug_detail_level = 0
 				return util.line_contents_from_string(program_output or "")
 			end
 		
+		-- helper function for entry_index_name_path_in_directory_or_cleanup_iterator below
+		local entry_index_name_path_in_directory_or_cleanup_iterator__next = function(file_names_in_directory, prev_i)
+				if not file_names_in_directory or prev_i >= #file_names_in_directory then return end
+				
+				local i = prev_i+1
+				local file_name = file_names_in_directory[i]
+				local file_path = file_names_in_directory.file_path_prefix .. file_name
+				return i, file_name, file_path
+			end
+		-- iterator function over each file name in a directory, deletes the directory if empty
+		function util.entry_index_name_path_in_directory_or_cleanup_iterator(directory_path)
+			local exists, file_names_in_directory = pcall(util.files_in_directory, directory_path)
+			if not exists then -- the directory doesn't exist
+				file_names_in_directory = nil
+			elseif #file_names_in_directory == 0 then -- the directory is empty
+				util.remove_directory(directory_path)
+			else -- the directory contains entries
+				file_names_in_directory.file_path_prefix = directory_path.."/"
+			end
+			return entry_index_name_path_in_directory_or_cleanup_iterator__next, file_names_in_directory, 0
+		end
+		
 		function util.read_full_file(path, failure_message)
 			local failure_prefix = failure_message and failure_message.."\n" or ""
 			

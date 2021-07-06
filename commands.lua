@@ -72,52 +72,40 @@ local dependencies_txt_description = "This file contains lines of the syntax '<d
 
 -- common pipeline command implementation helper/structure
 local pipeline_collective_by_individuals_command = function(features, util, arguments, options, command_infinitive, with_target_step_name_initial_params_pipeline_file_path_f)
-		-- verify arguments and options
 		
-		local target_step_name = options.target[1]
-		if options['all-targets'] then
-			assert(not target_step_name, "option '--all-targets' incompatible with selecting individual '--target' step")
-		else
-			assert(target_step_name, "missing '--target' step specification (or '--all-targets' flag)")
-		end
-		
-		local parameter_files = arguments
-		local default_params = options['default-params']
-		local initial_param_multivalues = {}
-		if options['all-params'] then
-			assert(#parameter_files == 0, "option '--all-params' incompatible with parameter file arguments")
-			assert(not default_params, "option '--all-params' incompatible with option '--default-params'")
-			parameter_files = nil
-		else
-			if not default_params then
-				assert(#parameter_files > 0, "missing parameter files (or option '--all-params' or '--default-params')")
+		local target_step_name
+		local parameter_files
+		local add_default_params_flag
+		do -- verify arguments and options
+			
+			-- we're either in --all-targets mode, or we have a single target_step_name
+			target_step_name = options.target[1]
+			if options['all-targets'] then
+				assert(not target_step_name, "option '--all-targets' incompatible with selecting individual '--target' step")
+			else
+				assert(target_step_name, "missing '--target' step specification (or '--all-targets' flag)")
+			end
+			
+			-- we're either in --all-params mode, or we have --default-params, or we have at least one parameter file
+			parameter_files = arguments
+			add_default_params_flag = options['default-params']
+			if options['all-params'] then
+				assert(#parameter_files == 0, "option '--all-params' incompatible with parameter file arguments")
+				assert(not add_default_params_flag, "option '--all-params' incompatible with option '--default-params'")
+				parameter_files = nil
+			else
+				if not add_default_params_flag then
+					assert(#parameter_files > 0, "missing parameter files (or option '--all-params' or '--default-params')")
+				end
 			end
 		end
 		
 		
 		-- actual work
 		
-		-- iterator function over each file name in a directory, deletes the directory if empty
-		local file_name_path_in_directory_or_cleanup_iterator__next = function(file_names_in_directory, prev_i)
-				if not file_names_in_directory or prev_i >= #file_names_in_directory then return end
-				
-				local i = prev_i+1
-				local file_name = file_names_in_directory[i]
-				local file_path = file_names_in_directory.file_path_prefix .. file_name
-				return i, file_name, file_path
-			end
-		local file_name_path_in_directory_or_cleanup_iterator = function(directory_path)
-				local exists, file_names_in_directory = pcall(util.files_in_directory, directory_path)
-				if not exists then -- the directory doesn't exist
-					file_names_in_directory = nil
-				elseif #file_names_in_directory == 0 then -- the directory is empty
-					util.remove_directory(directory_path)
-				else -- the directory contains entries
-					file_names_in_directory.file_path_prefix = directory_path.."/"
-				end
-				return file_name_path_in_directory_or_cleanup_iterator__next, file_names_in_directory, 0
-			end
+		-- first check what pipeline files exist
 		
+		local entry_index_name_path_in_directory_or_cleanup_iterator = util.entry_index_name_path_in_directory_or_cleanup_iterator
 		local existing_param_hash_dir_lookup_by_target_step_name = {}
 		-- dispatch function over each step name the command applies to
 		-- uses existing_param_hash_dir_lookup_by_target_step_name as a cache, first call is hardcode-assumed to construct it
@@ -130,7 +118,7 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 			or function(with_target_step_name_hash_dir_path_f, --[[further_args]]...) -- iterate over the directory
 					local any_found
 					local pipelines_path = relative_path_prefix.."pipelines"
-					for _, step_name, hash_dir_path in file_name_path_in_directory_or_cleanup_iterator(pipelines_path) do
+					for _, step_name, hash_dir_path in entry_index_name_path_in_directory_or_cleanup_iterator(pipelines_path) do
 						any_found = with_target_step_name_hash_dir_path_f(step_name, hash_dir_path, --[[further args]]...)
 							or any_found
 					end
@@ -150,14 +138,11 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 				end
 		
 		-- collect what param hash directories exist, as a set-like lookup table
-		local collect_step_pipeline_dir_lookup__add_to_set = function(hash_dir_name, unused_hash_dir_path, hash_dir_set)
-				hash_dir_set[hash_dir_name] = true
-				return true
-			end
-		local collect_step_pipeline_dir_lookup = function(step_name, step_pipeline_dir_path)
+		local any_pipelines_exist = foreach_target_step_name_pipeline_dir_path_returns_disjunction(
+			function --[[collect_step_pipeline_dir_lookup]](step_name, step_pipeline_dir_path)
 				local hash_dir_set = {}
 				local any_found
-				for _, hash_dir_name in file_name_path_in_directory_or_cleanup_iterator(step_pipeline_dir_path) do
+				for _, hash_dir_name in entry_index_name_path_in_directory_or_cleanup_iterator(step_pipeline_dir_path) do
 					hash_dir_set[hash_dir_name] = true
 					any_found = true
 				end
@@ -165,13 +150,15 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 					existing_param_hash_dir_lookup_by_target_step_name[step_name] = hash_dir_set
 					return true
 				end
-			end
-		local any_pipelines_exist = foreach_target_step_name_pipeline_dir_path_returns_disjunction(collect_step_pipeline_dir_lookup)
+			end)
 		
+		-- early return if no pipelines exist
 		if not any_pipelines_exist then
 			print("No pipelines to "..command_infinitive.." currently exist.")
 			return
 		end
+		
+		-- now select which pipeline files fall within the parameter selection
 		
 		local found_any_pipelines
 		if not parameter_files then -- '--all-params' flag: do not filter based on parameters
@@ -186,7 +173,7 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 						local hash_dir_path = hash_dir_path_prefix .. hash_dir_name
 						local pipeline_file_path_prefix = hash_dir_path.."/"
 						-- now we iterate over the individual pipeline files within each directory
-						for _, pipeline_file_name, pipeline_file_path in file_name_path_in_directory_or_cleanup_iterator(hash_dir_path) do
+						for _, pipeline_file_name, pipeline_file_path in entry_index_name_path_in_directory_or_cleanup_iterator(hash_dir_path) do
 							-- we read the initial parameters from the pipeline file
 							local initial_params = util.read_param_file_new_compat_deserialize(pipeline_file_path)
 							with_target_step_name_initial_params_pipeline_file_path_f(target_step_name, initial_params, pipeline_file_path)
@@ -218,7 +205,7 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 							end
 						else -- if no id was given, we consider every pipeline file in this directory
 							-- iterate over all pipeline files
-							for _, pipeline_file_name, pipeline_file_path in file_name_path_in_directory_or_cleanup_iterator(hash_dir_path) do
+							for _, pipeline_file_name, pipeline_file_path in entry_index_name_path_in_directory_or_cleanup_iterator(hash_dir_path) do
 								-- read the parameters
 								local file_params = util.read_param_file_new_compat_deserialize(pipeline_file_path)
 								-- set the id equal, then compare if all parameters are equal
@@ -235,7 +222,7 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 					end
 				end
 			
-			if default_params then -- handle '--default-params' flag case first
+			if add_default_params_flag then -- handle '--default-params' flag case first
 				found_any_pipelines = foreach_target_step_name_pipeline_dir_path_returns_disjunction(particular_pipeline_parameterization, {})
 					or found_any_pipelines
 			end
