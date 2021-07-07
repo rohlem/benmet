@@ -661,7 +661,7 @@ local program_command_structures = {
 			['from-metrics'] = {forward_as_arg = true, arg_help_name = 'metric-files', description = "indicates subsequent arguments are metric files holding commit expressions in 'REPO-GITCOMMITHASH-<repository-name>' properties"},
 			['to-file'] = option_to_file,
 		},
-		description = "Collect commit expressions in a git repository from several sources, organize their commit hashes into totally-ordered strands and output these in a multi-entry, multi-value structure, either to a supplied output file path, or to the default path '"..relative_path_prefix.."commit-ordering-<repository-name>.txt'. Note that all previous contents of the output file are overwritten.\nPositional arguments supplied after the flag '--commits' are interpreted as commit expressions, as `git log` would expect them. Examples include regular commit hashes ('c2da14d'), tagged commits of the repository ('v3.0.1'), branch names ('HEAD'), or parent expressions ('HEAD~4').\nPositional arguments supplied after the flag '--from-params' and '--from-metrics' represent file paths to multi-value parameter files and multi-entry metric files respectively (which are both processed identically). They are searched for properties of the name 'REPO-GITCOMMITHASH-<repository>', which can similarly hold arbitrary commit expressions.\nBecause git histories can be arbitrarily complex acyclic graphs, this operation of finding every path has an exponential complexity bound in relation to the number of commits given.\nFurthermore, performance comparisons/charting may only give useful insights within a single strand. Therefore, the default '--max-strands' value is 1, and you should carefully consider your use case before increasing it.",
+		description = "Collect commit expressions in a git repository from several sources, organize their commit hashes into totally-ordered strands and output these as specially-structured JSON, either to a supplied output file path, or to the default path '"..relative_path_prefix.."commit-ordering-<repository-name>.txt'. Note that all previous contents of the output file are overwritten.\nPositional arguments supplied after the flag '--commits' are interpreted as commit expressions, as `git log` would expect them. Examples include regular commit hashes ('c2da14d'), tagged commits of the repository ('v3.0.1'), branch names ('HEAD'), or parent expressions ('HEAD~4').\nPositional arguments supplied after the flag '--from-params' and '--from-metrics' represent file paths to files holding either JSON arrays of object entries, or line-based multi-value parameters or multi-entry metric files respectively (which are both processed identically). They are searched for properties of the name 'REPO-GITCOMMITHASH-<repository>', which can similarly hold arbitrary commit expressions.\nBecause git histories can be arbitrarily complex acyclic graphs, this operation of finding every path has an exponential complexity bound in relation to the number of commits given.\nFurthermore, performance comparisons/charting may only give useful insights within a single strand. Therefore, the default '--max-strands' value is 1, and you should carefully consider your use case before increasing it.",
 		implementation = function(features, util, arguments, options)
 			-- assert that the repository exists
 			local repository_name = options.repository[1]
@@ -704,16 +704,42 @@ local program_command_structures = {
 			local param_name = 'REPO-GITCOMMITHASH-'..repository_name
 			for i = 1, #file_path_list do
 				local file_path = file_path_list[i]
-				local successful, entries, key_lookup = pcall(util.read_multivalue_param_file_new_compat_deserialize, file_path)
+				local successful, file_contents = pcall(util.read_full_file, file_path)
 				if successful then
-					local key = key_lookup[param_name]
-					local values = key and entries[key]
-					values = values and values[2]
-					if not values then
-						print("Warning: file '"..file_path.."' did not contain the expected value name '"..key.."'")
-					else
-						for i = 1, #values do
-							commit_expression_list[#commit_expression_list+1] = values[i]
+					if string.match(file_contents, "%w*%[") then -- beginning looks like a JSON array
+						local array
+						successful, array = pcall(util.json_decode, file_contents)
+						if successful then
+							local all_entries_had_hash = true
+							local no_entries_had_hash = true
+							for i = 1, #array do
+								local entry_hash = array[i][param_name]
+								commit_expression_list[#commit_expression_list+1] = entry_hash
+								all_entries_had_hash = all_entries_had_hash and entry_hash
+								no_entries_had_hash = no_entries_had_hash and not entry_hash
+							end
+							if no_entries_had_hash then
+								print("Warning: JSON file '"..file_path.."' contained no entries with the expected property '"..param_name.."'")
+							elseif not all_entries_had_hash then
+								print("Warning: JSON file '"..file_path.."' contained some entries without the expected property '"..param_name.."'")
+							end
+						else
+							print("Warning: failed to parse JSON array from file '"..file_path.."'")
+						end
+					else -- file does not seem to contain JSON
+						local entries, key_lookup
+						successful, entries, key_lookup = pcall(util.new_compat_deserialize_multivalue, file_contents)
+						if successful then
+							local key = key_lookup[param_name]
+							local values = key and entries[key]
+							values = values and values[2]
+							if not values then
+								print("Warning: param file '"..file_path.."' did not contain the expected value name '"..param_name.."'")
+							else
+								util.list_append_in_place(commit_expression_list, values)
+							end
+						else
+							print("Warning: failed to parse param file '"..file_path.."'")
 						end
 					end
 				else
