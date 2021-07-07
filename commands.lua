@@ -107,7 +107,7 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 		if #param_files > 0 then
 			assert(not no_iterators_flag, "option '--all-params' incompatible with parameter file arguments")
 			local failed_parsing_parameter_files = {}
-			-- creating a parameter iterator from given multivalue parameter files
+			-- creating a parameter iterator from a given parameter file
 			local initial_param_iterator_from_param_file_constructor = function(param_file)
 					-- first read the file
 					local error_message
