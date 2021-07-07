@@ -71,8 +71,10 @@ local dependencies_txt_description = "This file contains lines of the syntax '<d
 
 
 -- common pipeline command routines
+
 -- results in no iterations when used in for-in loop
 local empty_iterator__next = function() end
+
 -- parse common pipeline options and arguments into an array of iterators, and remove parsed arguments in-place
 -- checks for option '--all-params', errors if present and any parameter iterators were created
 -- handles option '--default-params' by adding an iterator returning a single {} for default parameters
@@ -145,7 +147,8 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 		return iterator_constructor_list, warning_printer
 	end
 
--- existing pipeline command implementation helper/structure
+-- collects and iterates over existing pipelines, filterable by target step and initial parameters
+-- implementation helper function for all pipeline commands besides 'pipelines.launch' (which creates new pipelines instead of operating on existing ones)
 local pipeline_collective_by_individuals_command = function(features, util, arguments, options, command_infinitive, with_target_step_name_initial_params_pipeline_file_path_f)
 		
 		local target_step_name
@@ -226,8 +229,8 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 		
 		local found_any_pipelines
 		if not parameter_iterator_constructors then -- '--all-params' flag: do not filter based on parameters
+			
 			-- Dispatch calling the command over each found pipeline instance's set of parameters.
-			-- This contains the main logic of iterating over pipeline files.
 			found_any_pipelines = foreach_target_step_name_pipeline_dir_path_returns_disjunction(function(target_step_name, target_step_pipeline_dir_path)
 					local any_found
 					local hash_dir_path_prefix = target_step_pipeline_dir_path.."/"
@@ -246,58 +249,67 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 					end
 					return any_found
 				end, nil)
-		else -- filter based on parameters
-			-- Dispatch function calling the command over each set of parameters that a particular parameterization of the pipeline applies to.
-			-- This contains the main logic of iterating over and checking pipeline files. It's extracted into a function to be triggered in two contexts, see below.
-			local particular_pipeline_parameterization = function(target_step_name, target_step_pipeline_dir_path, initial_params)
+				
+		else -- iterate over parameters, filter based on them
+			
+			-- Dispatch function (iteration body) calling the command over each pipeline's file that given initial parameters apply to.
+			-- Returns whether any pipeline matched.
+			local call_with_matching_pipelines_returns_any_match = function(target_step_name, target_step_pipeline_dir_path, initial_params)
 					-- check if the directory the instance's pipeline file would be in exists
 					local hash_dir_name = features.get_pipeline_hash_dir_name(initial_params)
 					local hash_dirs = existing_param_hash_dir_lookup_by_target_step_name[target_step_name]
-					if hash_dirs[hash_dir_name] then
-						local any_found
-						local hash_dir_path = target_step_pipeline_dir_path.."/"..hash_dir_name
-						local pipeline_file_path_prefix = hash_dir_path.."/"
-						-- now check if we were given an id
-						local pipeline_id = initial_params['RUN-id']
-						if pipeline_id then -- if the id was given, we try loading a specific file
-							local pipeline_file_path = pipeline_file_path_prefix..pipeline_id..".txt"
-							local exists, file_params = pcall(util.read_param_file_new_compat_deserialize, pipeline_file_path)
-							-- if the file exists, also compare the parameters to guard against a hash collision
-							if exists and util.tables_shallow_equal(file_params, initial_params) then
-								with_target_step_name_initial_params_pipeline_file_path_f(target_step_name, initial_params, pipeline_file_path)
-								any_found = true
-							end
-						else -- if no id was given, we consider every pipeline file in this directory
-							-- iterate over all pipeline files
-							for _, pipeline_file_name, pipeline_file_path in entry_index_name_path_in_directory_or_cleanup_iterator(hash_dir_path) do
-								-- read the parameters
-								local file_params = util.read_param_file_new_compat_deserialize(pipeline_file_path)
-								-- set the id equal, then compare if all parameters are equal
-								initial_params['RUN-id'] = file_params['RUN-id']
-								if util.tables_shallow_equal(file_params, initial_params) then
-									with_target_step_name_initial_params_pipeline_file_path_f(target_step_name, file_params, pipeline_file_path)
-									any_found = true
-								end
-							end
-							-- clear the id from initial_params, just in case the table were to be reused
-							initial_params['RUN-id'] = nil
-						end
-						return any_found
+					if not hash_dirs[hash_dir_name] then -- early return if it doesn't exist
+						return
 					end
+					
+					local hash_dir_path = target_step_pipeline_dir_path.."/"..hash_dir_name
+					
+					-- now check if we were given an id
+					local pipeline_id = initial_params['RUN-id']
+					if pipeline_id then -- if the id was given, we try loading a specific file
+						local pipeline_file_path_prefix = hash_dir_path.."/"
+						local pipeline_file_path = pipeline_file_path_prefix..pipeline_id..".txt"
+						local exists, file_params = pcall(util.read_param_file_new_compat_deserialize, pipeline_file_path)
+						-- if the file exists, also compare the parameters to guard against a hash collision
+						if not (exists and util.tables_shallow_equal(file_params, initial_params)) then
+							return -- return no match
+						end
+						-- if everything is ok, call the given predicate
+						with_target_step_name_initial_params_pipeline_file_path_f(target_step_name, initial_params, pipeline_file_path)
+						return true -- return success
+					end
+					
+					-- if no id was given, we consider every pipeline file in this directory
+					local any_found
+					-- iterate over all pipeline files
+					for _, pipeline_file_name, pipeline_file_path in entry_index_name_path_in_directory_or_cleanup_iterator(hash_dir_path) do
+						-- read the parameters
+						local file_params = util.read_param_file_new_compat_deserialize(pipeline_file_path)
+						-- insert this id, then compare if all parameters are equal
+						initial_params['RUN-id'] = file_params['RUN-id']
+						if util.tables_shallow_equal(file_params, initial_params) then
+							with_target_step_name_initial_params_pipeline_file_path_f(target_step_name, file_params, pipeline_file_path)
+							any_found = true
+						end
+					end
+					-- clear the inserted id from initial_params, just in case the table were to be reused
+					initial_params['RUN-id'] = nil
+					return any_found
 				end
 			
 			-- iterate over parameter iterators
 			for i = 1, #parameter_iterator_constructors do
 				local parameter_iterator = parameter_iterator_constructors[i]
-				-- iterate over initial parameter configurations provided by the iterators,
+				-- iterate over initial parameter configurations provided by the iterator,
 				-- and filter pipelines based on them
 				for initial_params in parameter_iterator() do
-					found_any_pipelines = foreach_target_step_name_pipeline_dir_path_returns_disjunction(particular_pipeline_parameterization, initial_params)
+					found_any_pipelines = foreach_target_step_name_pipeline_dir_path_returns_disjunction(call_with_matching_pipelines_returns_any_match, initial_params)
 						or found_any_pipelines
 				end
 			end
 			-- print a warning message for files that could not be parsed
 			parameter_iterator_warning_printer()
+			
 		end
 		
 		if not found_any_pipelines then
@@ -489,7 +501,7 @@ local program_command_structures = {
 			-- iterate over parameter iterators
 			for i = 1, #parameter_iterator_constructors do
 				local parameter_iterator_constructor = parameter_iterator_constructors[i]
-				-- iterate over initial parameter configurations provided by the iterators,
+				-- iterate over initial parameter configurations provided by the iterator,
 				-- and launch pipelines based on them
 				for initial_params in parameter_iterator_constructor() do
 					launch_pipeline(target_step_name, initial_params)
