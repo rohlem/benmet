@@ -98,33 +98,61 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 			iterator_constructor_list[#iterator_constructor_list+1] = default_param_iterator_constructor
 		end
 		
-		local multivalue_param_files = {}
+		local param_files = {}
 		for i = 1, #arguments do
-			multivalue_param_files[i] = arguments[i]
+			param_files[i] = arguments[i]
 			arguments[i] = nil
 		end
 		
-		if #multivalue_param_files > 0 then
+		if #param_files > 0 then
 			assert(not no_iterators_flag, "option '--all-params' incompatible with parameter file arguments")
 			local failed_parsing_parameter_files = {}
 			-- creating a parameter iterator from given multivalue parameter files
-			local initial_param_iterator_from_multivalue_param_file_constructor = function(multivalue_param_file)
-					-- parse the file
-					local parsing_succeeded, initial_params_multivalue = pcall(util.read_multivalue_param_file_new_compat_deserialize, multivalue_param_file)
-					if parsing_succeeded then
-						-- return the resulting iterator
-						return util.all_combinations_of_multivalues(initial_params_multivalue)
+			local initial_param_iterator_from_param_file_constructor = function(param_file)
+					-- first read the file
+					local error_message
+					local successful, file_contents = pcall(util.read_full_file, param_file)
+					if not successful then
+						error_message = file_contents
+						-- fallthrough
 					else
-						-- add the file to our list of parsing failures
-						failed_parsing_parameter_files[#failed_parsing_parameter_files+1] = multivalue_param_file
-						-- return an empty iterator
-						return empty_iterator__next
+						-- next see if the beginning looks like a JSON array
+						if string.match(file_contents, "%w*%[") then
+							-- parse it as JSON
+							local param_array
+							successful, param_array = pcall(util.json_decode, file_contents)
+							if not successful then
+								error_message = param_array
+								-- fallthrough
+							else
+								-- return the resulting iterator
+								return util.array_element_iterator(param_array)
+							end
+						else
+							-- parse it as a multivalue param file in our custom line-based format
+							local multivalue_entries
+							successful, multivalue_entries = pcall(util.new_compat_deserialize_multivalue, file_contents)
+							if not successful then
+								error_message = multivalue_entries
+								-- fallthrough
+							else
+								-- return the resulting iterator
+								return util.all_combinations_of_multivalues(multivalue_entries)
+							end
+						end
 					end
+					-- in case of error, we fall through to here
+					-- add the file to our list of parsing failures
+					failed_parsing_parameter_files[#failed_parsing_parameter_files+1] = param_file .. ": "..tostring(error_message)
+					-- return an empty iterator
+					return empty_iterator__next
 				end
 			
-			for i = 1, #multivalue_param_files do
-				local multivalue_param_file = multivalue_param_files[i]
-				iterator_constructor_list[#iterator_constructor_list+1] = function() return initial_param_iterator_from_multivalue_param_file_constructor(multivalue_param_file) end
+			for i = 1, #param_files do
+				local param_file = param_files[i]
+				iterator_constructor_list[#iterator_constructor_list+1] = function()
+						return initial_param_iterator_from_param_file_constructor(param_file)
+					end
 			end
 			warning_printer_list[#warning_printer_list+1] = function()
 					-- output all files that we failed to parse
@@ -480,7 +508,7 @@ local program_command_structures = {
 			-- no-continue: don't continue an encountered already-continuable step
 			-- force-relaunch: delete all previously-existing step runs this pipeline incorporates -- would absolutely need dependency collision detection if implemented!
 		},
-		description = "Constructs all parameter combinations within each supplied multi-value parameter file, and starts a pipeline instance towards the specified target step for each one.\nA pipeline instance is started by iterating over each step in the dependency chain towards the target step. If a step is already finished, it is skipped. If an encountered step finishes synchronously (that is, it doesn't suspend by reporting status 'pending'), the next step is started.\nOn the first suspending step that is encountered, the pipeline is suspended: A `pipeline file` that saves the initial parameters used for that particular instance, extended by a 'RUN-id' property if none was yet assigned, is created. Further pipeline operations on this pipeline instance use this file to retrace the pipeline's steps.\nIf no suspending step is encountered, the pipeline is completed in full.",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported), and starts a pipeline instance towards the specified target step for each one.\nA pipeline instance is started by iterating over each step in the dependency chain towards the target step. If a step is already finished, it is skipped. If an encountered step finishes synchronously (that is, it doesn't suspend by reporting status 'pending'), the next step is started.\nOn the first suspending step that is encountered, the pipeline is suspended: A `pipeline file` that saves the initial parameters used for that particular instance, extended by a 'RUN-id' property if none was yet assigned, is created. Further pipeline operations on this pipeline instance use this file to retrace the pipeline's steps.\nIf no suspending step is encountered, the pipeline is completed in full.",
 		implementation = function(features, util, arguments, options)
 			local target_step_name = options.target[1]
 			
@@ -516,7 +544,7 @@ local program_command_structures = {
 	['pipelines.resume'] = {any_args_name = 'param-files',
 		summary = "resume previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options,
-		description = "Constructs all parameter combinations within each supplied multi-value parameter file. For each one, resumes all conforming previously-suspended pipeline instances towards the specified target step that are currently ready.\nA pipeline instance is resumed by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. If this step run still reports status 'pending', it is not yet ready, and so the pipeline remains suspended.\nIf it now reports the status 'continuable', it is continued, and the dependency chain is subsequently followed and continued, as detailed for `pipelines.launch`. On the first suspending step that is encountered, this is stopped and the pipeline remains suspended. If no such step is encountered, the pipeline instance is completed and its corresponding `pipeline file` is deleted.",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, resumes all conforming previously-suspended pipeline instances towards the specified target step that are currently ready.\nA pipeline instance is resumed by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. If this step run still reports status 'pending', it is not yet ready, and so the pipeline remains suspended.\nIf it now reports the status 'continuable', it is continued, and the dependency chain is subsequently followed and continued, as detailed for `pipelines.launch`. On the first suspending step that is encountered, this is stopped and the pipeline remains suspended. If no such step is encountered, the pipeline instance is completed and its corresponding `pipeline file` is deleted.",
 		implementation = function(features, util, arguments, options)
 			return pipeline_collective_by_individuals_command(features, util, arguments, options, "resume",
 				features.execute_pipeline_steps--[[(target_step_name, initial_params, existing_pipeline_file_path)]])
@@ -525,7 +553,7 @@ local program_command_structures = {
 	['pipelines.poll'] = {any_args_name = 'param-files',
 		summary = "poll the status of previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options,
-		description = "Constructs all parameter combinations within each supplied multi-value parameter file. For each one, polls all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline is polled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is queried for its status, which is aggregated into a statistic over all selected pipeline instances reported back by the program.",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, polls all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline is polled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is queried for its status, which is aggregated into a statistic over all selected pipeline instances reported back by the program.",
 		implementation = function(features, util, arguments, options)
 			local pipeline_poll_counts = {}
 			
@@ -588,7 +616,7 @@ local program_command_structures = {
 	['pipelines.cancel'] = {any_args_name = 'param-files',
 		summary = "cancel previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options_with_error_state_handling,
-		description = "Constructs all parameter combinations within each supplied multi-value parameter file. For each one, cancels all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is cancelled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation and reverts the step run back to being 'startable'. Note that the affected run directories, as well as the pipeline files, are not deleted however (in contrast to 'pipelines.discard').",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, cancels all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is cancelled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation and reverts the step run back to being 'startable'. Note that the affected run directories, as well as the pipeline files, are not deleted however (in contrast to 'pipelines.discard').",
 		implementation = function(features, util, arguments, options)
 			local include_errors = options['include-errors']
 			local only_errors = options['only-errors']
@@ -605,7 +633,7 @@ local program_command_structures = {
 	['pipelines.discard'] = {any_args_name = 'param-files',
 		summary = "discard previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options_with_error_state_handling,
-		description = "Constructs all parameter combinations within each supplied multi-value parameter file. For each one, discards all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is discarded by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation, and its run directory is deleted. In addition, the corresponding pipeline file is also deleted (in contrast to 'pipelines.cancel').",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, discards all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is discarded by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation, and its run directory is deleted. In addition, the corresponding pipeline file is also deleted (in contrast to 'pipelines.cancel').",
 		implementation = function(features, util, arguments, options)
 			local include_errors = options['include-errors']
 			local only_errors = options['only-errors']
