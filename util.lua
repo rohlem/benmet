@@ -274,6 +274,15 @@ util.debug_detail_level = 0
 			assert(next_to_remove_i > to_remove_n, "error: inconsistent order of elements to remove and list to remove them from")
 		end
 		
+		local array_element_iterator__next = function(state)
+				local next_index = state[1] + 1
+				state[1] = next_index
+				return state[2][next_index]
+			end
+		function util.array_element_iterator(array)
+			return array_element_iterator__next, {0, array} --[[, first_index=nil]]
+		end
+		
 		local env_override_table = {}
 		local env_override_string = ""
 		function util.getenv(varname)
