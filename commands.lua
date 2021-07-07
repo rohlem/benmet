@@ -71,14 +71,17 @@ local dependencies_txt_description = "This file contains lines of the syntax '<d
 
 
 -- common pipeline command routines
+-- results in no iterations when used in for-in loop
+local empty_iterator__next = function() end
 -- parse common pipeline options and arguments into an array of iterators, and remove parsed arguments in-place
 -- checks for option '--all-params', errors if present and any parameter iterators were created
 -- handles option '--default-params' by adding an iterator returning a single {} for default parameters
 -- handles all arguments by adding an iterator over all parameter combinations from the given multivalue parameter files
-local parse_param_iterator_constructors_from_pipeline_arguments_options = function(features, util, arguments, options)
+local parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options = function(features, util, arguments, options)
 		
 		local no_iterators_flag = options['all-params']
 		local iterator_constructor_list = not no_iterators_flag and {}
+		local warning_printer_list = iterator_constructor_list and {}
 		
 		if options['default-params'] then
 			assert(not no_iterators_flag, "option '--all-params' incompatible with option '--default-params'")
@@ -101,42 +104,28 @@ local parse_param_iterator_constructors_from_pipeline_arguments_options = functi
 		
 		if #multivalue_param_files > 0 then
 			assert(not no_iterators_flag, "option '--all-params' incompatible with parameter file arguments")
+			local failed_parsing_parameter_files = {}
 			-- creating a parameter iterator from given multivalue parameter files
-			local initial_param_iterator_from_multivalue_param_files__next = function(state--[[, prev_index]])
-					local nested_prev_index = state[3]
-					while true do
-						if nested_prev_index == nil then -- try the next file
-							local last_file_index, file_list = state[4], state[5]
-							if last_file_index == file_list then -- no more files left
-								break -- break the loop to reach end-of-iteration code afterwards
-							end
-							local next_file_index = last_file_index+1
-							state[4] = next_file_index
-							local next_file = file_list[next_file_index]
-							-- parse the next file
-							local parsing_succeeded, initial_params_multivalue = pcall(util.read_multivalue_param_file_new_compat_deserialize, next_file)
-							if parsing_succeeded then
-								-- write the resulting iterator to state
-								state[1], state[2], state[3] = util.all_combinations_of_multivalues(initial_params_multivalue)
-							else
-								-- add the file to our list of parsing failures
-								local failed_parsing_parameter_files = state.parsing_failures
-								failed_parsing_parameter_files[#failed_parsing_parameter_files+1] = next_file
-							end
-							-- in either case, continue the loop
-						else
-							local nested_next, nested_state = state[1], state[2]
-							local next_params = nested_next(nested_state, nested_prev_index)
-							state[3] = next_params
-							if next_params ~= nil then
-								return next_params
-							end
-							-- otherwise continue the loop
-						end
+			local initial_param_iterator_from_multivalue_param_file_constructor = function(multivalue_param_file)
+					-- parse the file
+					local parsing_succeeded, initial_params_multivalue = pcall(util.read_multivalue_param_file_new_compat_deserialize, multivalue_param_file)
+					if parsing_succeeded then
+						-- return the resulting iterator
+						return util.all_combinations_of_multivalues(initial_params_multivalue)
+					else
+						-- add the file to our list of parsing failures
+						failed_parsing_parameter_files[#failed_parsing_parameter_files+1] = multivalue_param_file
+						-- return an empty iterator
+						return empty_iterator__next
 					end
-					
+				end
+			
+			for i = 1, #multivalue_param_files do
+				local multivalue_param_file = multivalue_param_files[i]
+				iterator_constructor_list[#iterator_constructor_list+1] = function() return initial_param_iterator_from_multivalue_param_file_constructor(multivalue_param_file) end
+			end
+			warning_printer_list[#warning_printer_list+1] = function()
 					-- output all files that we failed to parse
-					local failed_parsing_parameter_files = state.parsing_failures
 					if #failed_parsing_parameter_files > 0 then
 						print("The following parameter files could not be parsed (were ignored):")
 						for i = 1, #failed_parsing_parameter_files do
@@ -144,33 +133,23 @@ local parse_param_iterator_constructors_from_pipeline_arguments_options = functi
 						end
 						print("Please manually verify the existence and contents of these files.")
 					end
-					
-					-- signal end of iteration by returning nil
-					return nil
 				end
-			local initial_param_iterator_from_multivalue_param_files = function(parameter_files)
-					parameter_files = util.table_copy_shallow(parameter_files)
-					local state = {
-						nil, -- [1] holds last util.all_combinations_of_multivalues next
-						nil, -- [2] holds last util.all_combinations_of_multivalues iterator state
-						nil, -- [3] holds last util.all_combinations_of_multivalues iterator index
-						0, -- [4] holds last file index
-						parameter_files, -- [5] holds parameter files list
-						parsing_failures = {}, -- .parsing_failures holds a list of paths to files that we failed to parse
-					}
-					return initial_param_iterator_from_multivalue_param_files__next, state
-				end
-			iterator_constructor_list[#iterator_constructor_list+1] = function() return initial_param_iterator_from_multivalue_param_files(multivalue_param_files) end
 		end
 		
-		return iterator_constructor_list
+		local warning_printer = function()
+				for i = 1, #warning_printer_list do
+					warning_printer_list[i]()
+				end
+			end
+		
+		return iterator_constructor_list, warning_printer
 	end
 
 -- existing pipeline command implementation helper/structure
 local pipeline_collective_by_individuals_command = function(features, util, arguments, options, command_infinitive, with_target_step_name_initial_params_pipeline_file_path_f)
 		
 		local target_step_name
-		local parameter_iterator_constructors
+		local parameter_iterator_constructors, parameter_iterator_warning_printer
 		do -- verify arguments and options
 			
 			-- we're either in --all-targets mode, or we have a single target_step_name
@@ -182,7 +161,7 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 			end
 			
 			-- parse parameter iterators, error in case of inconsistent options, false if '--all-params' was specified
-			parameter_iterator_constructors = parse_param_iterator_constructors_from_pipeline_arguments_options(features, util, arguments, options)
+			parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
 		end
 		
 		
@@ -312,12 +291,13 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 				local parameter_iterator = parameter_iterator_constructors[i]
 				-- iterate over initial parameter configurations provided by the iterators,
 				-- and filter pipelines based on them
-				-- also triggers a warning message for files that could not be parsed
 				for initial_params in parameter_iterator() do
 					found_any_pipelines = foreach_target_step_name_pipeline_dir_path_returns_disjunction(particular_pipeline_parameterization, initial_params)
 						or found_any_pipelines
 				end
 			end
+			-- print a warning message for files that could not be parsed
+			parameter_iterator_warning_printer()
 		end
 		
 		if not found_any_pipelines then
@@ -503,7 +483,7 @@ local program_command_structures = {
 				end
 			
 			-- parse parameter iterators; note that option '--all-params' is not available for this command, so would have been rejected during argument parsing
-			local parameter_iterator_constructors = parse_param_iterator_constructors_from_pipeline_arguments_options(features, util, arguments, options)
+			local parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
 			assert(#parameter_iterator_constructors > 0, "no parameter files specified, no pipelines launched (pass --default-params to launch a pipeline with default parameters)")
 			
 			-- iterate over parameter iterators
@@ -511,11 +491,12 @@ local program_command_structures = {
 				local parameter_iterator_constructor = parameter_iterator_constructors[i]
 				-- iterate over initial parameter configurations provided by the iterators,
 				-- and launch pipelines based on them
-				-- also triggers a warning message for files that could not be parsed
 				for initial_params in parameter_iterator_constructor() do
 					launch_pipeline(target_step_name, initial_params)
 				end
 			end
+			-- print a warning message for files that could not be parsed
+			parameter_iterator_warning_printer()
 			
 			return launched_anything and 0 or 1
 		end,
