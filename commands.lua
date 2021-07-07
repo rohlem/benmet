@@ -193,6 +193,7 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 			
 			-- parse parameter iterators, error in case of inconsistent options, false if '--all-params' was specified
 			parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
+			assert(not (parameter_iterator_constructors and #parameter_iterator_constructors == 0), "missing parameter files (or option '--all-params' or '--default-params')")
 		end
 		
 		
