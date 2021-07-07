@@ -484,18 +484,19 @@ util.debug_detail_level = 0
 			return multivalue_entries
 		end
 		
+		-- constructs all combinations, going in reverse order
 		local combinatorial_iterator_impl = function(state, combination)
 				local multivalue_entries = state[1]
 				local index_stack = state[2]
 				local keys_length = state[3]
-				if combination ~= nil then
-					for i = keys_length, 1, -1 do
-						if index_stack[i] > 1 then
+				if combination ~= nil then -- on all but the first call
+					for i = keys_length, 1, -1 do -- check all keys, starting at the last
+						if index_stack[i] > 1 then -- if there are more options left for key i, select the next one (decrementing)
 							local index_i = index_stack[i] - 1
 							index_stack[i] = index_i
 							local entry = multivalue_entries[i]
 							combination[entry[1]] = entry[2][index_i]
-							for j = i+1, keys_length do
+							for j = i+1, keys_length do -- reset all later keys back to the initial choice (the last option of each multivalue)
 								entry = multivalue_entries[j]
 								local values = entry[2]
 								local values_count = #values
@@ -506,7 +507,7 @@ util.debug_detail_level = 0
 						end
 					end
 					return
-				else
+				else -- on the first call, set up combination as the last option of each multivalue
 					index_stack = {}
 					state[2] = index_stack
 					local combination = {}
@@ -522,6 +523,19 @@ util.debug_detail_level = 0
 			end
 		function util.all_combinations_of_multivalues(multivalue_entries) -- note: faster iteration over sorted multivalue
 			return combinatorial_iterator_impl, {multivalue_entries, nil, #multivalue_entries}, nil
+		end
+		
+		function util.combinatorial_iterator_one_from_each_sublist(table_of_sublists)
+			-- convert to our multivalue_entries format
+			local multivalue_entries = {}
+			for k,v in pairs(list_of_sublists) do
+				assert(type(v) == 'table', "given value is not a table of sublists") -- alternatively we could auto-wrap in this case
+				multivalue_entries[#multivalue_entries+1] = {k, v}
+			end
+			-- sort the entries for asymptotically faster iteration
+			util.sort_multivalue(multivalue_entries)
+			-- return the iterator
+			return util.all_combinations_of_multivalues(multivalue_entries)
 		end
 		
 		function util.hash_params(params)
