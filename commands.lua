@@ -523,6 +523,7 @@ local program_command_structures = {
 		implementation = function(features, util, arguments, options)
 			local target_step_name = options.target[1]
 			
+			local parsed_anything
 			local launched_anything
 			local launch_pipeline = function(target_step_name, initial_params)
 					local successful, err = xpcall(features.execute_pipeline_steps, debug.traceback, target_step_name, initial_params)
@@ -537,20 +538,55 @@ local program_command_structures = {
 			local parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
 			assert(#parameter_iterator_constructors > 0, "no parameter files specified, no pipelines launched (pass --default-params to launch a pipeline with default parameters)")
 			
+			local nonapplicable_parameters_total = {} -- [name] = index, [index] = {name, occurences}
+			
 			-- iterate over parameter iterators
 			for i = 1, #parameter_iterator_constructors do
 				local parameter_iterator_constructor = parameter_iterator_constructors[i]
 				-- iterate over initial parameter configurations provided by the iterator,
 				-- and launch pipelines based on them
 				for initial_params in parameter_iterator_constructor() do
-					launch_pipeline(target_step_name, initial_params)
+					parsed_anything = true
+					local nonapplicable_initial_params = features.list_parameters_nonapplicable_to_target_step_and_dependencies(target_step_name, initial_params)
+					if #nonapplicable_initial_params == 0 then
+						launch_pipeline(target_step_name, initial_params)
+					else
+						for i = 1, #nonapplicable_initial_params do
+							local param_name = nonapplicable_initial_params[i]
+							local index = nonapplicable_parameters_total[param_name]
+							if not index then
+								index = #nonapplicable_parameters_total+1
+								nonapplicable_parameters_total[param_name] = index
+								nonapplicable_parameters_total[index] = {param_name, 0}
+							end
+							local entry = nonapplicable_parameters_total[index]
+							entry[2] = entry[2]+1
+						end
+					end
 				end
 			end
+			
 			-- print a warning message for files that could not be parsed
 			parameter_iterator_warning_printer()
 			
+			-- print a warning message for encountered nonapplicable parameters in combinations
+			if #nonapplicable_parameters_total > 0 then
+				-- order by occurrences descendingly
+				table.sort(nonapplicable_parameters_total, function(a, b) return a[2] > b[2] end)
+				print("Some parameter combinations contained properties not consumed by any of the involved steps:")
+				for i = 1, #nonapplicable_parameters_total do
+					local entry = nonapplicable_parameters_total[i]
+					local occurrences = entry[2]
+					print("- '"..tostring(entry[1]).."' (in "..tostring(occurrences).." parameter combination"..(occurrences == 1 and "" or "s")..")")
+				end
+				print("The offending pipelines were not launched.")
+			end
+			
 			if not launched_anything then
-				print("no parameters could be parsed, no pipelines were launched")
+				print(
+					(parsed_anything and "" or "no parameters could be parsed, ")
+					.. "no pipelines were launched"
+				)
 				return 1
 			end
 		end,
