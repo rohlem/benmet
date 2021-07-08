@@ -148,6 +148,20 @@ function features.step_split_inputs_table_into_special_params_default_values(ste
 	
 	return special_params, default_values
 end
+local step_query_inputs_special_params_default_values_cache = {}
+-- cached lookup of special_params and default_values tables for a given step name
+function features.step_query_inputs_special_params_default_values(step_name)
+	local entry = step_query_inputs_special_params_default_values_cache[step_name]
+	local special_params, default_values
+	if entry then
+		special_params, default_values = entry[1], entry[2]
+	else
+		special_params, default_values = features.step_split_inputs_table_into_special_params_default_values(features.step_query_inputs_template_table(step_name))
+		entry = {special_params, default_values}
+		step_query_inputs_special_params_default_values_cache[step_name] = entry
+	end
+	return special_params, default_values
+end
 
 
 
@@ -295,14 +309,11 @@ end
 -- constructs the input params requested by the given step using the given params as a basis
 -- returns active params, in params, special params, step hash params, run path
 local step_single_process_params_active_in_special_hash_run_path = function(step_name, params)
-	local step_path = relative_path_prefix.."steps/"..step_name
-	params = util.table_copy_shallow(params)
-	--query the input params the step expects
-	local step_input_param_template = features.step_query_inputs_template_table(step_name)
 	
 	-- split input template into special parameters to handle and default values to copy where our params are empty
-	local special_params, default_values = features.step_split_inputs_table_into_special_params_default_values(step_input_param_template)
+	local special_params, default_values = features.step_query_inputs_special_params_default_values(step_name)
 	local requested_repos_lookup = special_params.requested_repos_lookup
+	params = util.table_patch(default_values, params) -- apply our params over default values
 	
 	local step_hash_params_intersector = {} -- hash params are run input params, but without repo paths and RUN-all-params
 	for k--[[,v]] in pairs(default_values) do
@@ -311,8 +322,6 @@ local step_single_process_params_active_in_special_hash_run_path = function(step
 	for repo_name--[[,v]] in pairs(requested_repos_lookup) do
 		step_hash_params_intersector['REPO-GITCOMMITHASH-'..repo_name] = true
 	end
-	
-	params = util.table_patch(default_values, params) -- apply our params over default values
 	
 	--ensure the requested repos exist, and write their commit hashes to params where none were specified
 	for repo_name, _ in pairs(requested_repos_lookup) do
@@ -350,6 +359,7 @@ local step_single_process_params_active_in_special_hash_run_path = function(step
 		step_run_in_params[k] = v
 	end
 	
+	local step_path = relative_path_prefix.."steps/"..step_name
 	local step_run_path = step_path.."/runs/"..step_run_hash
 	
 	return params, step_run_in_params, special_params, step_run_hash_params, step_run_path
