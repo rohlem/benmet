@@ -110,15 +110,17 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 			-- creating a parameter iterator from a given parameter file
 			local initial_param_iterator_from_param_file_constructor = function(param_file)
 					-- first read the file
-					local error_message
+					local error_message, parsing_mode_hint = "(error message uninitialized)", "(error hint uninitialized)"
 					local successful, file_contents = pcall(util.read_full_file, param_file)
 					if not successful then
 						error_message = file_contents
+						parsing_mode_hint = "(error reading file) "
 						-- fallthrough
 					else
 						-- next see if the beginning looks like a JSON array
 						if string.match(file_contents, "%w*%[") then
 							-- parse it as JSON
+							parsing_mode_hint = "(tried parsing as JSON array) "
 							local param_array
 							successful, param_array = pcall(util.json_decode, file_contents)
 							if not successful then
@@ -137,6 +139,7 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 							end
 						else
 							-- parse it as a multivalue param file in our custom line-based format
+							parsing_mode_hint = "(tried parsing as line-based multivalue param file) "
 							local multivalue_entries
 							successful, multivalue_entries = pcall(util.new_compat_deserialize_multivalue, file_contents)
 							if not successful then
@@ -150,7 +153,7 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 					end
 					-- in case of error, we fall through to here
 					-- add the file to our list of parsing failures
-					failed_parsing_parameter_files[#failed_parsing_parameter_files+1] = param_file .. ": "..tostring(error_message)
+					failed_parsing_parameter_files[#failed_parsing_parameter_files+1] = param_file .. ": "..tostring(parsing_mode_hint)..tostring(error_message)
 					-- return an empty iterator
 					return empty_iterator__next
 				end
