@@ -406,32 +406,16 @@ util.debug_detail_level = 0
 			return table.concat(lines, "\n")
 		end
 		
-		--[[function util.compat_deserialize(s, filter_key_prefix)
-			local t = {}
-			if filter_key_prefix then
-				local filter_key_prefix_length = #filter_key_prefix
-				for k, v in string.gmatch(s, "(%S+)=(%S*)") do
-					local after_prefix = util.string_starts_with(k, filter_key_prefix)
-					if after_prefix then
-						t[after_prefix] = v
-					end
-				end
-			else
-				for k, v in string.gmatch(s, "(%S+)=(%S*)") do
-					t[k] = v
-				end
-			end
-			return t
-		end--]]
-		
 		function util.new_compat_deserialize(s, failure_message)
 			local failure_prefix = failure_message and failure_message.."\n" or ""
 			local t = {}
-			for k, v in string.gmatch(s, "(%S+)=([^\n]*)") do
-				if t[k] ~= nil then
-					error(failure_prefix.."encountered duplicate key assignment: ["..k.."] = "..t[k]..", then = "..v)
+			for k, v in string.gmatch(s, "([^%s=]*)=([^\n]*)") do
+				if k ~= "" then
+					if t[k] ~= nil then
+						error(failure_prefix.."encountered duplicate key assignment: ["..k.."] = "..t[k]..", then = "..v)
+					end
+					t[k] = v
 				end
-				t[k] = v
 			end
 			return t
 		end
@@ -468,19 +452,21 @@ util.debug_detail_level = 0
 		function util.new_compat_deserialize_multivalue(s)
 			local key_index_lookup = {}
 			local entries = {}
-			for k, v in string.gmatch(s, "(%S+)=([^\n]*)") do
-				local key_index = key_index_lookup[k]
-				if not key_index then
-					key_index = #entries+1
-					key_index_lookup[k] = key_index
-				end
-				local entry = entries[key_index]
-				if not entry then
-					entry = {k, {v}}
-					entries[key_index] = entry
-				else
-					local values = entry[2]
-					values[#values+1] = v
+			for k, v in string.gmatch(s, "([^%s=]*)=([^\n]*)") do
+				if k ~= "" then
+					local key_index = key_index_lookup[k]
+					if not key_index then
+						key_index = #entries+1
+						key_index_lookup[k] = key_index
+					end
+					local entry = entries[key_index]
+					if not entry then
+						entry = {k, {v}}
+						entries[key_index] = entry
+					else
+						local values = entry[2]
+						values[#values+1] = v
+					end
 				end
 			end
 			return entries, key_index_lookup
