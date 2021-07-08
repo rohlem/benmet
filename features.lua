@@ -30,6 +30,89 @@ function features.clone_new_repository(git_url, new_repository_name)
 end
 
 
+-- git features: lookup commit hashes resulting from commit expressions
+-- By default we assume that everything is a commit expression.
+-- Only what we queried via "git log" is considered a hash, which is cached here.
+local git_repository_commit_expr_is_hash_lookup_by_name = {}
+-- lookup a given commit expression in a given repository, cached for the execution of the program
+local lookup_git_repository_commit_expr_hash = function(repo_name, commit_expr)
+	local commit_expr_hash_lookup = git_repository_commit_expr_is_hash_lookup_by_name[repo_name]
+	if not commit_expr_hash_lookup then -- if we haven't looked this repository up yet, `git fetch --all`
+		commit_expr_hash_lookup = {}
+		git_repository_commit_expr_is_hash_lookup_by_name[repo_name] = commit_expr_hash_lookup
+		
+		local repo_path = relative_path_prefix.."repos/"..repo_name
+		assert(util.execute_command_at("git fetch --all", repo_path))
+	end
+	
+	local commit_hash = commit_expr_hash_lookup[commit_expr]
+	if not commit_hash then -- look up the commit expression and add it to our cache
+		local repo_path = relative_path_prefix.."repos/"..repo_name
+		commit_hash = assert(util.get_commit_hash_of(repo_path, commit_expr))
+		
+		commit_expr_hash_lookup[commit_expr] = commit_hash
+	end
+	return commit_hash
+end
+
+
+
+-- step features: direct/simple command execution
+-- environment overrides for the Lua scripts we execute (we need variants by working directory)
+local benmet_lua_env_override_tables_by_relative_step_dir_path = {
+	["./"] = {
+			LUA_PATH = util.relative_prefixed_package_path("../../"), -- "./steps/<step-name>" is exactly 2 nested
+		},
+	["../../"] = {
+			LUA_PATH = util.relative_prefixed_package_path("../../../../"), -- "./steps/<step-name>/runs/<param-hash>" is exactly 4 nested
+		},
+}
+-- directly invoke the given command of the given step at the given path (step run directory)
+local step_invoke_command_raw = function(at_path, command, relative_step_dir_path)
+	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.lua_program.." "..util.in_quotes(relative_step_dir_path.."run.lua").." "..command, benmet_lua_env_override_tables_by_relative_step_dir_path[relative_step_dir_path], at_path)
+	return success and program_output, return_status
+end
+
+-- directly invoke command 'inputs' of the given step
+local step_query_inputs_uncached = function(step_name)
+	return step_invoke_command_raw(relative_path_prefix.."steps/"..step_name, 'inputs', "./")
+end
+local step_query_inputs_cache = {}
+-- query the results of invoking command 'inputs' of the given step, potentially from cache
+function features.step_query_inputs(step_name)
+	local inputs = step_query_inputs_cache[step_name]
+	if not inputs then
+		inputs = step_query_inputs_uncached(step_name)
+		step_query_inputs_cache[step_name] = inputs
+	end
+	return inputs
+end
+local step_query_inputs_template_table_cache = {}
+-- query and parse the results of invoking command 'inputs' of the given step, potentially from cache
+function features.step_query_inputs_template_table(step_name)
+	local inputs_template = step_query_inputs_template_table_cache[step_name]
+	if not inputs_template then
+		inputs_template = util.new_compat_deserialize(assert(features.step_query_inputs(step_name), "failed to query input params of step '"..step_name.."'"))
+		step_query_inputs_template_table_cache[step_name] = inputs_template
+	end
+	return inputs_template
+end
+
+-- query the status of the given step run
+-- TODO (maybe?): intelligent caching - this means invalidating the cache every time the status might change
+function features.step_query_status(step_name, step_run_path)
+	-- quick path: if a file params_out.txt exists, the step run is finished -- TODO: maybe remove once we have caching?
+	if util.file_exists(step_run_path.."/params_out.txt") then
+		return 'finished'
+	end
+	-- execute the run script which determines the run's status
+	local output = step_invoke_command_raw(step_run_path, 'status', "../../")
+	assert(output, "failed to query status of step '"..step_name.."' for run path '"..step_run_path.."'")
+	return type(output) == 'string' and util.cut_trailing_space(output)
+		or output
+end
+
+
 
 -- step features: dependencies
 -- parses the workspace's 'steps/dependencies.txt' file into a single-depender-to-many-dependees immediate-dependency lookup table
@@ -144,88 +227,6 @@ function features.step_get_necessary_steps_inclusive(target_step_name)
 	local steps = util.table_copy_shallow(features.step_get_necessary_steps(target_step_name))
 	steps[#steps+1] = target_step_name
 	return steps
-end
-
-
-
--- step features: direct/simple command execution
--- environment overrides for the Lua scripts we execute (we need variants by working directory)
-local benmet_lua_env_override_tables_by_relative_step_dir_path = {
-	["./"] = {
-			LUA_PATH = util.relative_prefixed_package_path("../../"), -- "./steps/<step-name>" is exactly 2 nested
-		},
-	["../../"] = {
-			LUA_PATH = util.relative_prefixed_package_path("../../../../"), -- "./steps/<step-name>/runs/<param-hash>" is exactly 4 nested
-		},
-}
--- directly invoke the given command of the given step at the given path (step run directory)
-local step_invoke_command_raw = function(at_path, command, relative_step_dir_path)
-	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.lua_program.." "..util.in_quotes(relative_step_dir_path.."run.lua").." "..command, benmet_lua_env_override_tables_by_relative_step_dir_path[relative_step_dir_path], at_path)
-	return success and program_output, return_status
-end
--- directly invoke command 'inputs' of the given step
-local step_query_inputs_uncached = function(step_name)
-	return step_invoke_command_raw(relative_path_prefix.."steps/"..step_name, 'inputs', "./")
-end
-local step_query_inputs_cache = {}
--- query the results of invoking command 'inputs' of the given step, potentially from cache
-function features.step_query_inputs(step_name)
-	local inputs = step_query_inputs_cache[step_name]
-	if not inputs then
-		inputs = step_query_inputs_uncached(step_name)
-		step_query_inputs_cache[step_name] = inputs
-	end
-	return inputs
-end
-local step_query_inputs_template_table_cache = {}
--- query and parse the results of invoking command 'inputs' of the given step, potentially from cache
-function features.step_query_inputs_template_table(step_name)
-	local inputs_template = step_query_inputs_template_table_cache[step_name]
-	if not inputs_template then
-		inputs_template = util.new_compat_deserialize(assert(features.step_query_inputs(step_name), "failed to query input params of step '"..step_name.."'"))
-		step_query_inputs_template_table_cache[step_name] = inputs_template
-	end
-	return inputs_template
-end
--- query the status of the given step run
--- TODO: intelligent caching - this means invalidating the cache every time the status might change
-function features.step_query_status(step_name, step_run_path)
-	-- quick path: if a file params_out.txt exists, the step run is finished -- TODO: maybe remove once we have caching?
-	if util.file_exists(step_run_path.."/params_out.txt") then
-		return 'finished'
-	end
-	-- execute the run script which determines the run's status
-	local output = step_invoke_command_raw(step_run_path, 'status', "../../")
-	assert(output, "failed to query status of step '"..step_name.."' for run path '"..step_run_path.."'")
-	return type(output) == 'string' and util.cut_trailing_space(output)
-		or output
-end
-
-
-
--- git features: lookup commit hashes resulting from commit expressions
--- By default we assume that everything is a commit expression.
--- Only what we queried via "git log" is considered a hash, which is cached here.
-local git_repository_commit_expr_is_hash_lookup_by_name = {}
--- lookup a given commit expression in a given repository, cached for the execution of the program
-local lookup_git_repository_commit_expr_hash = function(repo_name, commit_expr)
-	local commit_expr_hash_lookup = git_repository_commit_expr_is_hash_lookup_by_name[repo_name]
-	if not commit_expr_hash_lookup then -- if we haven't looked this repository up yet, `git fetch --all`
-		commit_expr_hash_lookup = {}
-		git_repository_commit_expr_is_hash_lookup_by_name[repo_name] = commit_expr_hash_lookup
-		
-		local repo_path = relative_path_prefix.."repos/"..repo_name
-		assert(util.execute_command_at("git fetch --all", repo_path))
-	end
-	
-	local commit_hash = commit_expr_hash_lookup[commit_expr]
-	if not commit_hash then -- look up the commit expression and add it to our cache
-		local repo_path = relative_path_prefix.."repos/"..repo_name
-		commit_hash = assert(util.get_commit_hash_of(repo_path, commit_expr))
-		
-		commit_expr_hash_lookup[commit_expr] = commit_hash
-	end
-	return commit_hash
 end
 
 
