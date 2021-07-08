@@ -259,8 +259,12 @@ if selected_command_structure.options then
 		local values = parsed_options[k]
 		if type(values) == 'table' then
 			local value_count = #values
-			assert(not (v.required and #values <= 0), "missing required option '"..k.."' (FIXME)")
-			assert(#values <= 1, "option given multiple times '"..k.."' (FIXME)")
+			assert(not (v.required and value_count <= 0), "missing required option '"..k.."' (FIXME)")
+			if not v.allow_multiple then
+				assert(value_count <= 1, "option '"..k.."' given multiple times (which it doesn't support)")
+			else
+				assert(v.allow_multiple == true or value_count <= v.allow_multiple, "option '"..k.."' given too many times (only "..tostring(v.allow_multiple).." occurrences supported)")
+			end
 		end
 	end
 end

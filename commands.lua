@@ -23,6 +23,8 @@ These commands are returned as a table in the following form 'benmet.main' expec
 				shorthand_for = <list of other options (must all be flags) this flag activates>,
 				
 				forward_as_arg = <boolean that indicates this option is supposed to be ignored and passed through as a normal arg, as a sort of section marker f.e. "--sources a b --targets b c"; incompatible with is_flag, nil defaults to false>,
+				
+				allow_multiple = <boolean or number (limit) that indicates whether this option can be supplied multiple times (only supported for normal, non-flag, non-forwarded-as-args options)>,
 			},
 		}; nil defaults to no options>,
 	},
