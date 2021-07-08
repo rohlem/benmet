@@ -308,6 +308,36 @@ function features.step_get_necessary_steps_inclusive(target_step_name)
 end
 
 
+local step_query_effective_inputs_lookup_union_cache = {}
+local step_query_effective_inputs_lookup_union = function(target_step_name)
+	local effective_inputs_lookup_union = step_query_effective_inputs_lookup_union_cache[target_step_name]
+	if not effective_inputs_lookup_union then
+		-- gather dependency step names
+		local target_step_dependency_list = features.step_get_necessary_steps_inclusive(target_step_name)
+		effective_inputs_lookup_union = {}
+		for i = 1, #target_step_dependency_list do
+			local step_name = target_step_dependency_list[i]
+			local effective_inputs_lookup = features.step_query_effective_inputs_lookup(step_name)
+			effective_inputs_lookup_union = util.table_patch_in_place(effective_inputs_lookup_union, effective_inputs_lookup)
+		end
+		step_query_effective_inputs_lookup_union_cache[target_step_name] = effective_inputs_lookup_union
+	end
+	return effective_inputs_lookup_union
+end
+-- return a list of the subset of the given parameters that applies to (is an input of) neither the given target step nor any of its dependencies
+function features.list_parameters_nonapplicable_to_target_step_and_dependencies(target_step_name, initial_params)
+	local effective_inputs_lookup_union = step_query_effective_inputs_lookup_union(target_step_name)
+	-- create a list holding the keys only present in initial_params
+	local ineffective_inputs_lookup = {}
+	for k--[[,v]] in pairs(initial_params) do
+		if effective_inputs_lookup_union[k] == nil then
+			ineffective_inputs_lookup[#ineffective_inputs_lookup+1] = k
+		end
+	end
+	return ineffective_inputs_lookup
+end
+
+
 
 -- step features: run status inspection/checking
 -- returns if the given run directory exists (cache_hit), and if an incompatible run is using that directory (hash_collision)
