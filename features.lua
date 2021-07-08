@@ -75,6 +75,7 @@ end
 
 -- directly invoke command 'inputs' of the given step
 local step_query_inputs_uncached = function(step_name)
+	--assert(util.file_exists(relative_path_prefix.."steps/"..step_name.."/run.lua"), "step '"..step_name.."' is missing run.lua script, failed to query its input parameters")
 	return step_invoke_command_raw(relative_path_prefix.."steps/"..step_name, 'inputs', "./")
 end
 local step_query_inputs_cache = {}
@@ -110,6 +111,42 @@ function features.step_query_status(step_name, step_run_path)
 	assert(output, "failed to query status of step '"..step_name.."' for run path '"..step_run_path.."'")
 	return type(output) == 'string' and util.cut_trailing_space(output)
 		or output
+end
+
+
+
+-- step features: interpreting declared step inputs
+-- interprets the given step input parameters into special_params table and effective default values
+function features.step_split_inputs_table_into_special_params_default_values(step_inputs_table)
+	-- result tables
+	local requested_repos_lookup = {}
+	local special_params = {
+			requested_repos_lookup = requested_repos_lookup,
+		}
+	local default_values = {}
+	-- look through every entry
+	for k,v in pairs(step_inputs_table) do
+		local is_repo_path = util.string_starts_with(k, 'REPO-PATH-')
+		local is_repo_gitcommithash = (not is_repo_path) and util.string_starts_with(k, 'REPO-GITCOMMITHASH-')
+		local repo_name = is_repo_path or is_repo_gitcommithash
+		if repo_name then
+			requested_repos_lookup[repo_name] = true
+			if is_repo_gitcommithash then
+				default_values[k] = is_repo_gitcommithash and v or nil
+			end
+		elseif k == 'RUN-id' then
+			special_params.wants_run_id = true
+		elseif k == 'RUN-all-params' then
+			special_params.wants_all_params = true
+		else
+			if not util.string_starts_with(k, 'PARAM-') then
+				util.logprint("warning: unrecognized non-PARAM step input parameter: "..k)
+			end
+			default_values[k] = v
+		end
+	end
+	
+	return special_params, default_values
 end
 
 
@@ -261,45 +298,30 @@ local step_single_process_params_active_in_special_hash_run_path = function(step
 	local step_path = relative_path_prefix.."steps/"..step_name
 	params = util.table_copy_shallow(params)
 	--query the input params the step expects
-	--assert(util.file_exists(step_path.."/run.lua"), "step '"..step_name.."' is missing run.lua script, failed to query its input parameters")
 	local step_input_param_template = features.step_query_inputs_template_table(step_name)
-	local step_hash_params_intersector = {} -- hash params are run input params, but without repo paths and RUN-all-params
 	
-	--look through the step input params for special parameters to handle and defaults to copy
-	local requested_repos_lookup = {}
-	local special_params = {
-			requested_repos_lookup = requested_repos_lookup,
-		}
-	for k,v in pairs(step_input_param_template) do -- special parameter handling and default parameter copying
-		local is_repo_path = util.string_starts_with(k, 'REPO-PATH-')
-		local is_repo_gitcommithash = (not is_repo_path) and util.string_starts_with(k, 'REPO-GITCOMMITHASH-')
-		local repo_name = is_repo_path or is_repo_gitcommithash
-		if repo_name then
-			requested_repos_lookup[repo_name] = true
-			step_hash_params_intersector['REPO-GITCOMMITHASH-'..repo_name] = true
-		elseif k == 'RUN-id' then
-			special_params.wants_run_id = true
-		elseif k == 'RUN-all-params' then
-			special_params.wants_all_params = true
-		else
-			step_hash_params_intersector[k] = true
-			if not util.string_starts_with(k, 'PARAM-') then
-				util.logprint("warning: unrecognized non-PARAM step input parameter: "..k)
-			end
-			if params[k] == nil then
-				params[k] = v
-			end
-		end
+	-- split input template into special parameters to handle and default values to copy where our params are empty
+	local special_params, default_values = features.step_split_inputs_table_into_special_params_default_values(step_input_param_template)
+	local requested_repos_lookup = special_params.requested_repos_lookup
+	
+	local step_hash_params_intersector = {} -- hash params are run input params, but without repo paths and RUN-all-params
+	for k--[[,v]] in pairs(default_values) do
+		step_hash_params_intersector[k] = true
+	end
+	for repo_name--[[,v]] in pairs(requested_repos_lookup) do
+		step_hash_params_intersector['REPO-GITCOMMITHASH-'..repo_name] = true
 	end
 	
-	--ensure the requested repos exist, and query their commit if none was specified
+	params = util.table_patch(default_values, params) -- apply our params over default values
+	
+	--ensure the requested repos exist, and write their commit hashes to params where none were specified
 	for repo_name, _ in pairs(requested_repos_lookup) do
 		local repo_path = relative_path_prefix.."repos/"..repo_name
 		--assert(util.is_working_directory_clean(repo_path), "repo '"..repo_name.."' requested via input parameters of build step '"..step_name.."' unavailable")
 		
 		local gitcommithash_key = 'REPO-GITCOMMITHASH-'..repo_name
 		local commit_expr = params[gitcommithash_key]
-			or step_input_param_template[gitcommithash_key] ~= "" and step_input_param_template[gitcommithash_key] -- a default specified in the run script overrides the current repository state
+		commit_expr = commit_expr ~= "" and commit_expr
 			or 'HEAD' -- otherwise query the current commit
 		
 		-- translate a commit expression to its commit hash
@@ -316,15 +338,20 @@ local step_single_process_params_active_in_special_hash_run_path = function(step
 	-- calculate the step run's identifying hash
 	local step_run_hash_params = util.tables_intersect(params, step_hash_params_intersector)
 	local step_run_hash = util.hash_params(step_run_hash_params)
-	local step_run_path = step_path.."/runs/"..step_run_hash
+	
+	local step_run_in_params = util.table_copy_shallow(step_run_hash_params)
 	
 	-- construct the paths for all requested repositories, relative to the nesting of any step run directory
 	local step_run_relative_repos = "../../../"..step_name.."/runs/"..step_run_hash.."/repos/"
 	for repo_name, _ in pairs(requested_repos_lookup) do
-		params['REPO-PATH-'..repo_name] = step_run_relative_repos..repo_name.."/"
+		local k = 'REPO-PATH-'..repo_name
+		local v = step_run_relative_repos..repo_name.."/"
+		params[k] = v
+		step_run_in_params[k] = v
 	end
 	
-	local step_run_in_params = util.tables_intersect(params, step_input_param_template)
+	local step_run_path = step_path.."/runs/"..step_run_hash
+	
 	return params, step_run_in_params, special_params, step_run_hash_params, step_run_path
 end
 -- writes the values found in the given step run's 'params_out.txt' to the given table params_to_write_to
