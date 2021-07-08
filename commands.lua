@@ -546,7 +546,10 @@ local program_command_structures = {
 			-- print a warning message for files that could not be parsed
 			parameter_iterator_warning_printer()
 			
-			return launched_anything and 0 or 1
+			if not launched_anything then
+				print("no parameters could be parsed, no pipelines were launched")
+				return 1
+			end
 		end,
 	},
 	['pipelines.resume'] = {any_args_name = 'param-files',
