@@ -163,6 +163,33 @@ function features.step_query_inputs_special_params_default_values(step_name)
 	return special_params, default_values
 end
 
+-- constructs a lookup table of the effective (non-special, user-configurable) input parameters from given special_params and default_values of a step
+local step_construct_effective_inputs_lookup_from_special_params_default_values_uncached = function(special_params, default_values)
+	local effective_inputs_lookup = {}
+	
+	for k--[[,v]] in pairs(default_values) do
+		effective_inputs_lookup[k] = true
+	end
+	
+	for repo_name--[[,v]] in pairs(special_params.requested_repos_lookup) do
+		effective_inputs_lookup['REPO-GITCOMMITHASH-'..repo_name] = true
+	end
+	
+	effective_inputs_lookup['RUN-id'] = special_params.wants_run_id or nil
+	
+	return effective_inputs_lookup
+end
+local step_query_effective_inputs_lookup_cache = {}
+-- queries the effective (non-special, user-configurable) input parameters of a given step (potentially from cache)
+function features.step_query_effective_inputs_lookup(step_name)
+	local effective_inputs = step_query_effective_inputs_lookup_cache[step_name]
+	if not effective_inputs then
+		effective_inputs = step_construct_effective_inputs_lookup_from_special_params_default_values_uncached(features.step_query_inputs_special_params_default_values(step_name))
+		step_query_effective_inputs_lookup_cache[step_name] = effective_inputs
+	end
+	return effective_inputs
+end
+
 
 
 -- step features: dependencies
@@ -315,14 +342,6 @@ local step_single_process_params_active_in_special_hash_run_path = function(step
 	local requested_repos_lookup = special_params.requested_repos_lookup
 	params = util.table_patch(default_values, params) -- apply our params over default values
 	
-	local step_hash_params_intersector = {} -- hash params are run input params, but without repo paths and RUN-all-params
-	for k--[[,v]] in pairs(default_values) do
-		step_hash_params_intersector[k] = true
-	end
-	for repo_name--[[,v]] in pairs(requested_repos_lookup) do
-		step_hash_params_intersector['REPO-GITCOMMITHASH-'..repo_name] = true
-	end
-	
 	--ensure the requested repos exist, and write their commit hashes to params where none were specified
 	for repo_name, _ in pairs(requested_repos_lookup) do
 		local repo_path = relative_path_prefix.."repos/"..repo_name
@@ -341,10 +360,10 @@ local step_single_process_params_active_in_special_hash_run_path = function(step
 	--provide run id if requested
 	if special_params.wants_run_id then
 		ensure_run_id_in_place(params)
-		step_hash_params_intersector['RUN-id'] = true
 	end
 	
 	-- calculate the step run's identifying hash
+	local step_hash_params_intersector = features.step_query_effective_inputs_lookup(step_name) -- hash params are all effective params: run input params without repo paths and RUN-all-params
 	local step_run_hash_params = util.tables_intersect(params, step_hash_params_intersector)
 	local step_run_hash = util.hash_params(step_run_hash_params)
 	
