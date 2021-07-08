@@ -164,8 +164,28 @@ local step_invoke_command_raw = function(at_path, command, relative_step_dir_pat
 	return success and program_output, return_status
 end
 -- directly invoke command 'inputs' of the given step
-function features.step_query_inputs(step_name)
+local step_query_inputs_uncached = function(step_name)
 	return step_invoke_command_raw(relative_path_prefix.."steps/"..step_name, 'inputs', "./")
+end
+local step_query_inputs_cache = {}
+-- query the results of invoking command 'inputs' of the given step, potentially from cache
+function features.step_query_inputs(step_name)
+	local inputs = step_query_inputs_cache[step_name]
+	if not inputs then
+		inputs = step_query_inputs_uncached(step_name)
+		step_query_inputs_cache[step_name] = inputs
+	end
+	return inputs
+end
+local step_query_inputs_template_table_cache = {}
+-- query and parse the results of invoking command 'inputs' of the given step, potentially from cache
+function features.step_query_inputs_template_table(step_name)
+	local inputs_template = step_query_inputs_template_table_cache[step_name]
+	if not inputs_template then
+		inputs_template = util.new_compat_deserialize(assert(features.step_query_inputs(step_name), "failed to query input params of step '"..step_name.."'"))
+		step_query_inputs_template_table_cache[step_name] = inputs_template
+	end
+	return inputs_template
 end
 -- query the status of the given step run
 -- TODO: intelligent caching - this means invalidating the cache every time the status might change
@@ -241,7 +261,7 @@ local step_single_process_params_active_in_special_hash_run_path = function(step
 	params = util.table_copy_shallow(params)
 	--query the input params the step expects
 	--assert(util.file_exists(step_path.."/run.lua"), "step '"..step_name.."' is missing run.lua script, failed to query its input parameters")
-	local step_input_param_template = util.new_compat_deserialize(assert(features.step_query_inputs(step_name), "failed to query input params of step '"..step_name.."'"))
+	local step_input_param_template = features.step_query_inputs_template_table(step_name)
 	local step_hash_params_intersector = {} -- hash params are run input params, but without repo paths and RUN-all-params
 	
 	--look through the step input params for special parameters to handle and defaults to copy
