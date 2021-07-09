@@ -688,10 +688,9 @@ local program_command_structures = {
 			local parsed_anything
 			local launched_anything
 			local launch_pipeline = function(target_step_name, initial_params)
+					launched_anything = true
 					local successful, err = xpcall(features.execute_pipeline_steps, debug.traceback, target_step_name, initial_params)
-					if successful then
-						launched_anything = true
-					else
+					if not successful then
 						print("Error launching pipeline: "..err)
 					end
 				end
