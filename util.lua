@@ -350,7 +350,7 @@ util.debug_detail_level = 0
 			util.logprint("executing: "..cmd.."\nenv-override: "..env_override_string)
 			incdl()
 				local read_pipe = assert(io.popen(env_override_string..cmd))
-				local program_output = read_pipe:read("a")
+				local program_output = read_pipe:read('*a')
 				util.debugprint("the program wrote: "..program_output)
 				local program_success, exit_type, return_status = read_pipe:close()
 				util.debugprint("it "..(program_success and "succeeded" or "failed").." by '"..exit_type.."' with status "..return_status)
@@ -1016,7 +1016,7 @@ util.debug_detail_level = 0
 			local file_success, file_error = io.open(path, 'r')
 			local file = assert(file_success, failure_prefix..tostring(file_error))
 			
-			local contents_success, contents_error = file:read('a')
+			local contents_success, contents_error = file:read('*a')
 			local contents = assert(contents_success, failure_prefix..tostring(contents_error))
 			
 			assert(file:close())
