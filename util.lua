@@ -739,7 +739,6 @@ util.debug_detail_level = 0
 			end,
 		})
 		
-		util.discard_stderr_suffix = ""
 		-- new implementation, presumably much faster? TODO: re-check this works equivalently everywhere (and if it blocks or errors on files open for writing)
 		util.file_exists = function(path)
 				util.logprint("checking file: "..path)
@@ -752,30 +751,12 @@ util.debug_detail_level = 0
 				decdl()
 				return file and true or false
 			end
-		--[=[ old implementation:
-		util.find_program("ls") and function(path)
-				path = util.in_quotes(path)
-				util.logprint("checking file: "..path)
-				incdl()
-					local exists = util.execute_command("ls "..path..util.discard_stderr_suffix)
-				decdl()
-				return exists
-			end
-			or --[[DIR is not a program]] function(path)
-				path = util.in_quotes(path)
-				path = string.gsub(path, "/", "\\") -- DIR does not support forward slashes
-				util.logprint("checking file: "..path)
-				incdl()
-					local exists = util.execute_command("DIR /B "..path..util.discard_stderr_suffix)
-				decdl()
-				return exists
-			end
-		--]=]
 		util.discard_output_file = util.file_exists("/dev/null") and "/dev/null" -- Linux
 			or "NUL" -- Windows
 		util.discard_stderr_suffix = " 2>"..util.discard_output_file
 		
-		util.ensure_file = util.find_program("touch") and function(path)
+		install_delayed_impl_selector(util, 'ensure_file', {
+			function() return util.find_program("touch") end, function(path)
 				path = util.in_quotes(path)
 				util.logprint("ensuring file: "..path)
 				incdl()
