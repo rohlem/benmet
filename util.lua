@@ -337,10 +337,12 @@ util.debug_detail_level = 0
 			env_override_string = env_override_string_from_table(env_override_table)
 		end
 		function util.prependenv(varname, value_prefix)
-			return util.setenv(varname, value_prefix..util.getenv(varname))
+			local prev_value = util.getenv(varname)
+			return util.setenv(varname, value_prefix..(prev_value ~= nil and prev_value or ""))
 		end
 		function util.appendenv(varname, value_suffix)
-			return util.setenv(varname, util.getenv(varname)..value_suffix)
+			local prev_value = util.getenv(varname)
+			return util.setenv(varname, (prev_value ~= nil and prev_value or "")..value_suffix)
 		end
 		
 		local execute_command_with_env_override_string = function(cmd, env_override_string, ...)
