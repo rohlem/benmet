@@ -45,6 +45,10 @@ local option_pipeline_all_params = {is_flag = true, description = "select all pi
 local option_pipeline_target = {description = "the target step of the pipeline(s)"} --TODO(potentially?): could be made optional if we had a default target step in dependencies.txt
 local option_pipeline_all_targets = {is_flag = true, description = "select all pipelines regardless of targets"}
 local option_pipeline_all = {is_flag = true, shorthand_for = {'all-targets', 'all-params'}, description = "select all pipelines"}
+local option_pipeline_accept_param = {description = "accept an unused property in pipeline parameterizations", allow_multiple = true}
+local option_pipeline_ignore_param = {description = "remove a property from pipeline parameterizations", allow_multiple = true}
+local option_pipeline_accept_unrecognized_params = {description = "accept unrecognized properties in pipeline parameterizations", is_flag = true}
+local option_pipeline_ignore_unrecognized_params = {description = "remove unrecognized properties from pipeline parameterizations", is_flag = true}
 
 local option_to_file = {description = "The file to write output to (instead of stdout). Overwrites all previous contents!"}
 
@@ -55,6 +59,10 @@ local pipeline_operation_structure_options = {
 		['default-params'] = option_pipeline_default_params,
 		['all-params'] = option_pipeline_all_params,
 		['all'] = option_pipeline_all,
+		['ignore-param'] = option_pipeline_ignore_param,
+		['accept-param'] = option_pipeline_accept_param,
+		['ignore-unrecognized-params'] = option_pipeline_ignore_unrecognized_params,
+		['accept-unrecognized-params'] = option_pipeline_accept_unrecognized_params,
 	}
 local pipeline_operation_structure_options_with_error_state_handling = {
 		['target'] = option_pipeline_target,
@@ -64,6 +72,10 @@ local pipeline_operation_structure_options_with_error_state_handling = {
 		['all'] = option_pipeline_all,
 		['include-errors'] = {is_flag = true, description = "also select pipelines with error status"},
 		['only-errors'] = {is_flag = true, description = "only select pipelines with error status"},
+		['ignore-param'] = option_pipeline_ignore_param,
+		['accept-param'] = option_pipeline_accept_param,
+		['ignore-unrecognized-params'] = option_pipeline_ignore_unrecognized_params,
+		['accept-unrecognized-params'] = option_pipeline_accept_unrecognized_params,
 	}
 
 
@@ -77,7 +89,7 @@ local dependencies_txt_description = "This file contains lines of the syntax '<d
 -- results in no iterations when used in for-in loop
 local empty_iterator__next = function() end
 
--- parse common pipeline options and arguments into an array of iterators, and remove parsed arguments in-place
+-- parse common pipeline options and arguments into an array of iterators and a warning printer, and remove parsed arguments in-place
 -- checks for option '--all-params', errors if present and any parameter iterators were created
 -- handles option '--default-params' by adding an iterator returning a single {} for default parameters
 -- handles all arguments by adding an iterator over all parameter combinations from the given multivalue parameter files
@@ -187,12 +199,136 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 		return iterator_constructor_list, warning_printer
 	end
 
+-- parse common pipeline options into a parameter coercion function provider and a warning printer
+-- checks for options '--accept-param', '--ignore-param', '--accept-unrecognized-params' and '--ignore-unrecognized-params', errors if they overlap
+-- the param coercion provider takes a target step name and returns a coercion function
+-- the coercion function returns the result of the parameters specified to be ignored removed from the given initial_params table (leaving the original table unchanged), or nil if unrecognized params remained and fallback behaviour was left unspecified
+local parse_unrecognized_param_coercer_provider_and_warning_printer_from_pipeline_options = function(features, util, options)
+		
+		-- option validation
+		local default_unrecognized_param_behaviour = 'error'
+		if options['ignore-unrecognized-params'] then
+			assert(not options['accept-unrecognized-params'], "Flags '--ignore-unrecognized-params' and '--accept-unrecognized-params' are exclusive. Select handling of individual properties with options '--ignore-param' and '--accept-param'.")
+			default_unrecognized_param_behaviour = 'ignore'
+		elseif options['accept-unrecognized-params'] then
+			default_unrecognized_param_behaviour = 'accept'
+		end
+		
+		local params_to_ignore_list = options['ignore-param']
+		local params_to_accept_list = options['accept-param']
+		do -- check for overlap
+			local params_to_ignore_lookup = util.list_to_lookup_table(params_to_ignore_list)
+			local params_to_accept_lookup = util.list_to_lookup_table(params_to_accept_list)
+			
+			local conflict_list = {}
+			for i = 1, #params_to_ignore_list do
+				if params_to_accept_lookup[params_to_ignore_list[i]] then
+					conflict_list[#conflict_list+1] = params_to_ignore_list[i]
+				end
+			end
+			if #conflict_list > 0 then
+				error("The following properties were specified to be both ignored and accepted: "..table.concat(conflict_list, ", ").."\n Please remove the corresponding '--ignore-param' or '--accept-param' options.")
+			end
+		end
+		params_to_ignore_list = #params_to_ignore_list > 0 and params_to_ignore_list
+		
+		-- actual logic
+		
+		local unrecognized_parameters_total = default_unrecognized_param_behaviour == 'error' and {} -- [name] = index, [index] = {name, occurences}
+		
+		local param_coercer_by_target_step_name = {}
+		local param_coercer_provider = function(target_step_name)
+				local param_coercer = param_coercer_by_target_step_name[target_step_name]
+				if not param_coercer then
+					local accepted_params_lookup = features.step_query_effective_inputs_lookup_union(target_step_name)
+					accepted_params_lookup = util.table_copy_shallow(accepted_params_lookup)
+					for i = 1, #params_to_accept_list do
+						accepted_params_lookup[params_to_accept_list[i]] = true
+					end
+					param_coercer = function(initial_params)
+							local coerced_params = initial_params
+							-- remove params to ignore
+							if params_to_ignore_list then
+								coerced_params = util.table_copy_shallow(coerced_params)
+								for i = 1, #params_to_ignore_list do
+									coerced_params[params_to_ignore_list[i]] = nil
+								end
+							end
+							
+							if default_unrecognized_param_behaviour == 'accept' then -- early return if we accept all other params
+								return coerced_params
+							end
+							
+							-- collect unrecognized present params
+							local unrecognized_param_list = {}
+							for k--[[,v]] in pairs(coerced_params) do
+								if not accepted_params_lookup[k] then
+									unrecognized_param_list[#unrecognized_param_list+1] = k
+								end
+							end
+							
+							if #unrecognized_param_list == 0 then -- early return if there were no unrecognized params
+								return coerced_params
+							end
+							
+							if default_unrecognized_param_behaviour == 'ignore' then -- remove unrecognized params
+								
+								coerced_params = coerced_params == initial_params and util.table_copy_shallow(coerced_params)
+									or coerced_params
+								for i = 1, #unrecognized_param_list do
+									coerced_params[unrecognized_param_list[i]] = nil
+								end
+								
+								return coerced_params
+								
+							elseif default_unrecognized_param_behaviour == 'error' then -- collect unrecognized params for warning message
+								
+								for i = 1, #unrecognized_param_list do
+									local param_name = unrecognized_param_list[i]
+									local index = unrecognized_parameters_total[param_name]
+									if not index then
+										index = #unrecognized_parameters_total+1
+										unrecognized_parameters_total[param_name] = index
+										unrecognized_parameters_total[index] = {param_name, 0}
+									end
+									local entry = unrecognized_parameters_total[index]
+									entry[2] = entry[2]+1
+								end
+								
+								return nil
+								
+							end
+							
+							error("unreachable: unhandled default_unrecognized_param_behaviour value of '"..tostring(default_unrecognized_param_behaviour))
+						end
+					param_coercer_by_target_step_name[target_step_name] = param_coercer
+				end
+				return param_coercer
+			end
+		local warning_printer = function()
+				if not unrecognized_parameters_total then return end
+				if #unrecognized_parameters_total > 0 then
+					-- order by occurrences descendingly
+					table.sort(unrecognized_parameters_total, function(a, b) return a[2] > b[2] end)
+					print("Some parameter combinations contained properties not consumed by any of the involved steps:")
+					for i = 1, #unrecognized_parameters_total do
+						local entry = unrecognized_parameters_total[i]
+						local occurrences = entry[2]
+						print("- '"..tostring(entry[1]).."' (in "..tostring(occurrences).." parameter combination"..(occurrences == 1 and "" or "s")..")")
+					end
+					print("The offending parameter combinations were not processed.")
+				end
+			end
+		return param_coercer_provider, warning_printer
+	end
+
 -- collects and iterates over existing pipelines, filterable by target step and initial parameters
 -- implementation helper function for all pipeline commands besides 'pipelines.launch' (which creates new pipelines instead of operating on existing ones)
 local pipeline_collective_by_individuals_command = function(features, util, arguments, options, command_infinitive, with_target_step_name_initial_params_pipeline_file_path_f)
 		
 		local target_step_name
 		local parameter_iterator_constructors, parameter_iterator_warning_printer
+		local param_coercer_provider, param_coercion_warning_printer
 		do -- verify arguments and options
 			
 			-- we're either in --all-targets mode, or we have a single target_step_name
@@ -206,6 +342,12 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 			-- parse parameter iterators, error in case of inconsistent options, false if '--all-params' was specified
 			parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
 			assert(not (parameter_iterator_constructors and #parameter_iterator_constructors == 0), "missing parameter files (or option '--all-params' or '--default-params')")
+			-- check for '--all-params' in combination with '--(accept|ignore)-(param|unrecognized-params)'
+			if not parameter_iterator_constructors then
+				assert(not (#options['accept-param'] > 0 or #options['ignore-param'] > 0 or options['accept-unrecognized-params'] or options['ignore-unrecognized-params']), "flag '--all-params' takes parameters from existing pipelines, and therefore ignores options '--accept-param' and '--ignore-param' as well as flags '--accept-unrecognized-params' and '--ignore-unrecognized-params'")
+			else
+				param_coercer_provider, param_coercion_warning_printer = parse_unrecognized_param_coercer_provider_and_warning_printer_from_pipeline_options(features, util, options)
+			end
 		end
 		
 		
@@ -296,6 +438,12 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 			-- Dispatch function (iteration body) calling the command over each pipeline's file that given initial parameters apply to.
 			-- Returns whether any pipeline matched.
 			local call_with_matching_pipelines_returns_any_match = function(target_step_name, target_step_pipeline_dir_path, initial_params)
+					local param_coercer = param_coercer_provider(target_step_name)
+					local initial_params = param_coercer(initial_params)
+					if not initial_params then
+						return false
+					end
+					
 					-- check if the directory the instance's pipeline file would be in exists
 					local hash_dir_name = features.get_pipeline_hash_dir_name(initial_params)
 					local hash_dirs = existing_param_hash_dir_lookup_by_target_step_name[target_step_name]
@@ -350,6 +498,9 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 			end
 			-- print a warning message for files that could not be parsed
 			parameter_iterator_warning_printer()
+			
+			-- print a warning message for encountered unrecognized parameters in combinations, if no fallback flag was provided
+			param_coercion_warning_printer()
 			
 		end
 		
@@ -520,10 +671,19 @@ local program_command_structures = {
 			['default-params'] = option_pipeline_default_params,
 			-- no-continue: don't continue an encountered already-continuable step
 			-- force-relaunch: delete all previously-existing step runs this pipeline incorporates -- would absolutely need dependency collision detection if implemented!
+			['ignore-param'] = option_pipeline_ignore_param,
+			['accept-param'] = option_pipeline_accept_param,
+			['ignore-unrecognized-params'] = option_pipeline_ignore_unrecognized_params,
+			['accept-unrecognized-params'] = option_pipeline_accept_unrecognized_params,
 		},
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported), and starts a pipeline instance towards the specified target step for each one.\nA pipeline instance is started by iterating over each step in the dependency chain towards the target step. If a step is already finished, it is skipped. If an encountered step finishes synchronously (that is, it doesn't suspend by reporting status 'pending'), the next step is started.\nOn the first suspending step that is encountered, the pipeline is suspended: A `pipeline file` that saves the initial parameters used for that particular instance, extended by a 'RUN-id' property if none was yet assigned, is created. Further pipeline operations on this pipeline instance use this file to retrace the pipeline's steps.\nIf no suspending step is encountered, the pipeline is completed in full.",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported), and starts a pipeline instance towards the specified target step for each one.\nA pipeline instance is started by iterating over each step in the dependency chain towards the target step. If a step is already finished, it is skipped. If an encountered step finishes synchronously (that is, it doesn't suspend by reporting status 'pending'), the next step is started.\nOn the first suspending step that is encountered, the pipeline is suspended: A `pipeline file` that saves the initial parameters used for that particular instance, extended by a 'RUN-id' property if none was yet assigned, is created. Further pipeline operations on this pipeline instance use this file to retrace the pipeline's steps.\nIf no suspending step is encountered, the pipeline is completed in full.\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
 		implementation = function(features, util, arguments, options)
 			local target_step_name = options.target[1]
+			
+			-- option parsing/checking
+			local param_coercer_provider, param_coercion_warning_printer = parse_unrecognized_param_coercer_provider_and_warning_printer_from_pipeline_options(features, util, options)
+			
+			-- actual work
 			
 			local parsed_anything
 			local launched_anything
@@ -540,8 +700,7 @@ local program_command_structures = {
 			local parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
 			assert(#parameter_iterator_constructors > 0, "no parameter files specified, no pipelines launched (pass --default-params to launch a pipeline with default parameters)")
 			
-			local nonapplicable_parameters_total = {} -- [name] = index, [index] = {name, occurences}
-			
+			local param_coercer = param_coercer_provider(target_step_name)
 			-- iterate over parameter iterators
 			for i = 1, #parameter_iterator_constructors do
 				local parameter_iterator_constructor = parameter_iterator_constructors[i]
@@ -549,21 +708,9 @@ local program_command_structures = {
 				-- and launch pipelines based on them
 				for initial_params in parameter_iterator_constructor() do
 					parsed_anything = true
-					local nonapplicable_initial_params = features.list_parameters_nonapplicable_to_target_step_and_dependencies(target_step_name, initial_params)
-					if #nonapplicable_initial_params == 0 then
-						launch_pipeline(target_step_name, initial_params)
-					else
-						for i = 1, #nonapplicable_initial_params do
-							local param_name = nonapplicable_initial_params[i]
-							local index = nonapplicable_parameters_total[param_name]
-							if not index then
-								index = #nonapplicable_parameters_total+1
-								nonapplicable_parameters_total[param_name] = index
-								nonapplicable_parameters_total[index] = {param_name, 0}
-							end
-							local entry = nonapplicable_parameters_total[index]
-							entry[2] = entry[2]+1
-						end
+					local coerced_params = param_coercer(initial_params)
+					if coerced_params then
+						launch_pipeline(target_step_name, coerced_params)
 					end
 				end
 			end
@@ -571,18 +718,8 @@ local program_command_structures = {
 			-- print a warning message for files that could not be parsed
 			parameter_iterator_warning_printer()
 			
-			-- print a warning message for encountered nonapplicable parameters in combinations
-			if #nonapplicable_parameters_total > 0 then
-				-- order by occurrences descendingly
-				table.sort(nonapplicable_parameters_total, function(a, b) return a[2] > b[2] end)
-				print("Some parameter combinations contained properties not consumed by any of the involved steps:")
-				for i = 1, #nonapplicable_parameters_total do
-					local entry = nonapplicable_parameters_total[i]
-					local occurrences = entry[2]
-					print("- '"..tostring(entry[1]).."' (in "..tostring(occurrences).." parameter combination"..(occurrences == 1 and "" or "s")..")")
-				end
-				print("The offending pipelines were not launched.")
-			end
+			-- print a warning message for encountered unrecognized parameters in combinations, if no fallback flag was provided
+			param_coercion_warning_printer()
 			
 			if not launched_anything then
 				print(
@@ -596,7 +733,7 @@ local program_command_structures = {
 	['pipelines.resume'] = {any_args_name = 'param-files',
 		summary = "resume previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options,
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, resumes all conforming previously-suspended pipeline instances towards the specified target step that are currently ready.\nA pipeline instance is resumed by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. If this step run still reports status 'pending', it is not yet ready, and so the pipeline remains suspended.\nIf it now reports the status 'continuable', it is continued, and the dependency chain is subsequently followed and continued, as detailed for `pipelines.launch`. On the first suspending step that is encountered, this is stopped and the pipeline remains suspended. If no such step is encountered, the pipeline instance is completed and its corresponding `pipeline file` is deleted.",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, resumes all conforming previously-suspended pipeline instances towards the specified target step that are currently ready.\nA pipeline instance is resumed by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. If this step run still reports status 'pending', it is not yet ready, and so the pipeline remains suspended.\nIf it now reports the status 'continuable', it is continued, and the dependency chain is subsequently followed and continued, as detailed for `pipelines.launch`. On the first suspending step that is encountered, this is stopped and the pipeline remains suspended. If no such step is encountered, the pipeline instance is completed and its corresponding `pipeline file` is deleted.\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
 		implementation = function(features, util, arguments, options)
 			return pipeline_collective_by_individuals_command(features, util, arguments, options, "resume",
 				features.execute_pipeline_steps--[[(target_step_name, initial_params, existing_pipeline_file_path)]])
@@ -605,7 +742,7 @@ local program_command_structures = {
 	['pipelines.poll'] = {any_args_name = 'param-files',
 		summary = "poll the status of previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options,
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, polls all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline is polled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is queried for its status, which is aggregated into a statistic over all selected pipeline instances reported back by the program.",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, polls all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline is polled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is queried for its status, which is aggregated into a statistic over all selected pipeline instances reported back by the program.\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
 		implementation = function(features, util, arguments, options)
 			local pipeline_poll_counts = {}
 			
@@ -668,7 +805,7 @@ local program_command_structures = {
 	['pipelines.cancel'] = {any_args_name = 'param-files',
 		summary = "cancel previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options_with_error_state_handling,
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, cancels all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is cancelled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation and reverts the step run back to being 'startable'. Note that the affected run directories, as well as the pipeline files, are not deleted however (in contrast to 'pipelines.discard').",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, cancels all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is cancelled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation and reverts the step run back to being 'startable'. Note that the affected run directories, as well as the pipeline files, are not deleted however (in contrast to 'pipelines.discard').\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
 		implementation = function(features, util, arguments, options)
 			local include_errors = options['include-errors']
 			local only_errors = options['only-errors']
@@ -685,7 +822,7 @@ local program_command_structures = {
 	['pipelines.discard'] = {any_args_name = 'param-files',
 		summary = "discard previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options_with_error_state_handling,
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, discards all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is discarded by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation, and its run directory is deleted. In addition, the corresponding pipeline file is also deleted (in contrast to 'pipelines.cancel').",
+		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, discards all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is discarded by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is cancelled, which aborts any still-running asynchronous operation, and its run directory is deleted. In addition, the corresponding pipeline file is also deleted (in contrast to 'pipelines.cancel').\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
 		implementation = function(features, util, arguments, options)
 			local include_errors = options['include-errors']
 			local only_errors = options['only-errors']
