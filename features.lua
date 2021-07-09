@@ -324,6 +324,7 @@ local step_query_effective_inputs_lookup_union = function(target_step_name)
 	end
 	return effective_inputs_lookup_union
 end
+features.step_query_effective_inputs_lookup_union = step_query_effective_inputs_lookup_union
 -- return a list of the subset of the given parameters that applies to (is an input of) neither the given target step nor any of its dependencies
 function features.list_parameters_nonapplicable_to_target_step_and_dependencies(target_step_name, initial_params)
 	local effective_inputs_lookup_union = step_query_effective_inputs_lookup_union(target_step_name)
