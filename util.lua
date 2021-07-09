@@ -345,20 +345,41 @@ util.debug_detail_level = 0
 			return util.execute_command("cd "..util.in_quotes(path).." && "..cmd)
 		end
 		
-		util.find_program_program = util.execute_command("which which") and "which"
-			or util.execute_command("where /Q where") and "where"
+		local find_program_cache = {}
+		do -- find our find program; we cannot delay this because we determine util.system_type (-> util.export_command) based on this (though there's probably better ways)
+			-- try 'which'
+			local found, exit_type, return_code, program_output = util.execute_command("which which")
+			if found then
+				find_program_cache['which'] = util.cut_trailing_space(program_output) -- fill the cache as a call to util.find_program would have
+				util.find_program_program = 'which'
+			else
+				-- try 'where'
+				found, exit_type, return_code, program_output = util.execute_command("where /Q where")
+				if found then
+					find_program_cache['where'] = util.cut_trailing_space(program_output) -- fill the cache as a call to util.find_program would have
+					util.find_program_program = 'where'
+				end
+			end
+		end
+		function util.find_program(program_name)
+			assert(util.find_program_program)
+			local result = find_program_cache[program_name]
+			util.logprint("looking up program '"..program_name.."'"..(result and " (cached)" or ""))
+			if result == nil then
+				incdl()
+					local found, exit_type, return_code, program_output = util.execute_command(util.find_program_program.." "..util.in_quotes(program_name))
+				decdl()
+				result = found and (util.cut_trailing_space(program_output)
+						or found)
+					or false
+				find_program_cache[program_name] = result
+			end
+			return result
+		end
 		util.system_type = util.find_program_program == 'which' and 'unix'
 			or 'windows'
 		util.export_command = util.system_type == 'unix' and 'export'
 			or 'SET'
-		function util.find_program(program_name)
-			assert(util.find_program_program)
-			util.logprint("looking up program '"..program_name.."'")
-			incdl()
-				local found, exit_type, return_code, program_output = util.execute_command(util.find_program_program.." "..util.in_quotes(program_name))
-			decdl()
-			return found and util.cut_trailing_space(program_output) or found
-		end
 		
 		function util.append_line(file_path, line)
 			line = util.string_ends_with(line, "\n") and line
