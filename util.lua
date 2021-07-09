@@ -234,6 +234,15 @@ util.debug_detail_level = 0
 			return keys
 		end
 		
+		function util.list_to_index_lookup_table(list)
+			local index_lookup = {}
+			for i = 1, #list do
+				index_lookup[list[i]] = i
+			end
+			return index_lookup
+		end
+		util.list_to_lookup_table = util.list_to_index_lookup_table
+		
 		function util.tables_intersect(values_from, keys_from)
 			local result = {}
 			for k,_ in pairs(keys_from) do
