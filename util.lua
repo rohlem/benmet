@@ -292,6 +292,30 @@ util.debug_detail_level = 0
 			return array_element_iterator__next, {0, array} --[[, first_index=nil]]
 		end
 		
+		-- This function constructs and assigns to t[index]
+		-- a proxy function that selects the actual implementation from a list
+		-- and then assigns and calls the selected implementation.
+		-- Used so we can f.e. implement removing files based on whether 'rm' exists,
+		-- but only look up whether 'rm' exists if that functionality is actually required.
+		local install_delayed_impl_selector = function(t, index, condition_implementation_pair_list)
+			local selected_impl
+			local impl_selector_proxy = function(--[[impl_args]]...)
+					if not selected_impl then -- otherwise the selection was already evaluated, maybe this function was copied out to somewhere else in the meantime
+						for i = 1, #condition_implementation_pair_list, 2 do
+							local condition_f = condition_implementation_pair_list[i]
+							if condition_f == true or condition_f() then -- if the condition is true, choose the corresponding implementation
+								selected_impl = condition_implementation_pair_list[i+1]
+								break
+							end
+							assert(i + 1 < #condition_implementation_pair_list, "exhausted all implementations, no condition satisfied")
+						end
+						t[index] = selected_impl -- replace ourselves with the actual implementation
+					end
+					return selected_impl(--[[impl_args]]...) -- work as a proxy
+				end
+			t[index] = impl_selector_proxy
+		end
+		
 		local env_override_table = {}
 		local env_override_string = ""
 		function util.getenv(varname)
@@ -697,7 +721,8 @@ util.debug_detail_level = 0
 		end
 		
 	-- file system
-		util.get_current_directory = util.find_program("pwd") and function()
+		install_delayed_impl_selector(util, 'get_current_directory', {
+			function() return util.find_program("pwd") end, function()
 				incdl()
 					local program_success, exit_type, return_status, program_output = assert(util.execute_command("pwd"))
 				decdl()
@@ -705,13 +730,14 @@ util.debug_detail_level = 0
 				util.debugprint("CURRENT DIR: "..program_output.."|||")
 				assert(#program_output > 0)
 				return program_output
-			end
-			or --[[CD is not a program]] function()
+			end,
+			--[[CD is not a program]] true, function()
 				incdl()
 					local program_success, exit_type, return_status, program_output = assert(util.execute_command("CD"))
 				decdl()
 				return util.cut_trailing_space(program_output)
-			end
+			end,
+		})
 		
 		util.discard_stderr_suffix = ""
 		-- new implementation, presumably much faster? TODO: re-check this works equivalently everywhere (and if it blocks or errors on files open for writing)
@@ -760,8 +786,8 @@ util.debug_detail_level = 0
 						util.debugprint("created empty file "..path)
 					end
 				decdl()
-			end
-			or --[[REM is not a program]] function(path)
+			end,
+			--[[REM is not a program]] true, function(path)
 				path = util.in_quotes(path)
 				util.logprint("ensuring file: "..path)
 				incdl()
@@ -772,19 +798,23 @@ util.debug_detail_level = 0
 						util.debugprint("created empty file "..path)
 					end
 				decdl()
-			end
+			end,
+		})
 		
-		util.remove_file = util.find_program("rm") and function(path)
+		install_delayed_impl_selector(util, 'remove_file', {
+			function() return util.find_program("rm") end, function(path)
 				util.logprint("deleting file: "..path)
 				incdl()
 					assert(util.execute_command("rm -f "..util.in_quotes(path)), "failed to delete file: "..path)
 				decdl()
-			end or --[[DEL is not a program]] function(path)
+			end,
+			--[[DEL is not a program]] true, function(path)
 				util.logprint("deleting file: "..path)
 				incdl()
 					assert(util.execute_command("DEL /F /Q "..util.in_quotes_with_backslashes(path)), "failed to delete file: "..path)
 				decdl()
-			end
+			end,
+		})
 		
 		util.remove_file_if_exists_return_existed = function(path)
 			incdl()
@@ -852,17 +882,20 @@ util.debug_detail_level = 0
 			end
 		end
 		
-		util.remove_directory = util.find_program("rm") and function(path)
+		install_delayed_impl_selector(util, 'remove_directory', {
+			function() return util.find_program("rm") end, function(path)
 				util.logprint("deleting directory: "..path)
 				incdl()
 					assert(util.execute_command("rm -f -R "..util.in_quotes(path)), "failed to delete directory: "..path)
 				decdl()
-			end or --[[RMDIR is not a program]] function(path)
+			end,
+			--[[RMDIR is not a program]] true, function(path)
 				util.logprint("deleting directory: "..path)
 				incdl()
 					assert(util.execute_command("RMDIR /S /Q "..util.in_quotes(path)), "failed to delete directory: "..path)
 				decdl()
-			end
+			end,
+		})
 		
 		util.remove_directory_if_exists = function(path)
 			if util.directory_exists(path) then
@@ -888,74 +921,89 @@ util.debug_detail_level = 0
 				end
 				return files_to_list
 			end
-		util.remove_all_in_directory_except = util.find_program("rm") and function(directory_path, files_to_keep)
+		install_delayed_impl_selector(util, 'remove_all_in_directory_except', {
+			function() return util.find_program("rm") end, function(directory_path, files_to_keep)
 				util.logprint("clearing directory '"..directory_path.."' except for '"..table.concat(files_to_keep, "', '").."'")
 				incdl()
 					assert(util.execute_command_at("rm -Rf "..files_in_directory_as_string_list_except(directory_path, files_to_keep), directory_path))
 				decdl()
-			end or --[[DEL is not a program]] function(directory_path, files_to_keep)
+			end,
+			--[[DEL is not a program]] true, function(directory_path, files_to_keep)
 				util.logprint("clearing directory '"..directory_path.."' except for '"..table.concat(files_to_keep, "', '").."'")
 				incdl()
 					assert(util.execute_command_at("DEL /F /Q "..files_in_directory_as_string_list_except(directory_path, files_to_keep), directory_path))
 				decdl()
-			end
+			end,
+		})
 		
 		util.ensure_directory_clean = function(path)
 			util.remove_directory_if_exists(path)
 			util.ensure_directory(path)
 		end
 		
-		util.move_file_in_directory = util.find_program("mv") and function(containing_dir_path, source_file_name, destination_file_name)
-			util.logprint("renaming file in directory '"..containing_dir_path.."' from '"..source_file_name.."' to '"..destination_file_name.."'")
-			incdl()
-				assert(util.execute_command_at("mv -f -T "..util.in_quotes("./"..source_file_name).." "..util.in_quotes("./"..destination_file_name), containing_dir_path))
-			decdl()
-		end or --[[RENAME is not a program]] function(containing_dir_path, source_file_name, destination_file_name)
-			util.logprint("renaming file in directory '"..containing_dir_path.."' from '"..source_file_name.."' to '"..destination_file_name.."'")
-			incdl()
-				assert(util.execute_command_at("RENAME "..util.in_quotes(source_file_name).." "..util.in_quotes(destination_file_name), containing_dir_path))
-			decdl()
-		end
+		install_delayed_impl_selector(util, 'move_file_in_directory', {
+			function() return util.find_program("mv") end, function(containing_dir_path, source_file_name, destination_file_name)
+				util.logprint("renaming file in directory '"..containing_dir_path.."' from '"..source_file_name.."' to '"..destination_file_name.."'")
+				incdl()
+					assert(util.execute_command_at("mv -f -T "..util.in_quotes("./"..source_file_name).." "..util.in_quotes("./"..destination_file_name), containing_dir_path))
+				decdl()
+			end,
+			--[[RENAME is not a program]]true, function(containing_dir_path, source_file_name, destination_file_name)
+				util.logprint("renaming file in directory '"..containing_dir_path.."' from '"..source_file_name.."' to '"..destination_file_name.."'")
+				incdl()
+					assert(util.execute_command_at("RENAME "..util.in_quotes(source_file_name).." "..util.in_quotes(destination_file_name), containing_dir_path))
+				decdl()
+			end,
+		})
 		
-		util.copy_file_to_become = util.find_program("cp") and function(source, destination)
-			util.logprint("copying file '"..source.."' to become file '"..destination.."'")
-			incdl()
-				assert(util.execute_command("cp "..util.in_quotes(source).." "..util.in_quotes(destination)))
-			decdl()
-		end or --[[COPY is not a program]] function(source, destination)
-			util.logprint("copying file '"..source.."' to become file '"..destination.."'")
-			incdl()
-				assert(util.execute_command("copy /Y "..util.in_quotes(source).." "..util.in_quotes(destination)))
-			decdl()
-		end
+		install_delayed_impl_selector(util, 'copy_file_to_become', {
+			function() return util.find_program("cp") end, function(source, destination)
+				util.logprint("copying file '"..source.."' to become file '"..destination.."'")
+				incdl()
+					assert(util.execute_command("cp "..util.in_quotes(source).." "..util.in_quotes(destination)))
+				decdl()
+			end,
+			--[[COPY is not a program]] true, function(source, destination)
+				util.logprint("copying file '"..source.."' to become file '"..destination.."'")
+				incdl()
+					assert(util.execute_command("copy /Y "..util.in_quotes(source).." "..util.in_quotes(destination)))
+				decdl()
+			end,
+		})
 		
-		util.copy_directory_recursively_to_become = util.find_program("cp") and function(source, destination)
-			util.logprint("copying directory '"..source.."' to become directory '"..destination.."'")
-			incdl()
-				assert(util.execute_command("cp -R -T "..util.in_quotes(source).." "..util.in_quotes(destination)))
-			decdl()
-		end or util.find_program("xcopy") and function(source, destination)
-			util.logprint("copying directory '"..source.."' to become directory '"..destination.."'")
-			incdl()
-				assert(util.execute_command("xcopy "..util.in_quotes(source).." "..util.in_quotes(destination).." /E /Q /Y"))
-			decdl()
-		end
+		install_delayed_impl_selector(util, 'copy_directory_recursively_to_become', {
+			function() return util.find_program("cp") end, function(source, destination)
+				util.logprint("copying directory '"..source.."' to become directory '"..destination.."'")
+				incdl()
+					assert(util.execute_command("cp -R -T "..util.in_quotes(source).." "..util.in_quotes(destination)))
+				decdl()
+			end,
+			function() return util.find_program("xcopy") end, function(source, destination)
+				util.logprint("copying directory '"..source.."' to become directory '"..destination.."'")
+				incdl()
+					assert(util.execute_command("xcopy "..util.in_quotes(source).." "..util.in_quotes(destination).." /E /Q /Y"))
+				decdl()
+			end,
+		})
 		
-		util.files_in_directory = util.find_program("ls") and function(path)
+		install_delayed_impl_selector(util, 'files_in_directory', {
+			function() return util.find_program("ls") end, function(path)
 				util.logprint("listing files in directory: "..path)
 				incdl()
 					local success, exit_type, return_status, program_output = util.execute_command("ls -1A "..util.in_quotes(path))
 					assert(success, "failed to list files in directory: "..tostring(path))
 				decdl()
 				return util.line_contents_from_string(program_output or "")
-			end or --[[DIR is not a program]] function(path)
+			end,
+			--[[DIR is not a program]] true, function(path)
 				util.logprint("listing files in directory: "..path)
 				incdl()
 					local success, exit_type, return_status, program_output = util.execute_command("DIR /B "..util.in_quotes_with_backslashes(path))
 					assert(success, "failed to list files in directory: "..tostring(path))
 				decdl()
 				return util.line_contents_from_string(program_output or "")
-			end
+			end,
+		})
 		
 		-- helper function for entry_index_name_path_in_directory_or_cleanup_iterator below
 		local entry_index_name_path_in_directory_or_cleanup_iterator__next = function(file_names_in_directory, prev_i)
