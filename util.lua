@@ -415,34 +415,6 @@ util.debug_detail_level = 0
 			assert(file:close())
 		end
 		
-		local check_compat = function(x)
-			local t = type(x)
-			if t == 'table' or t == 'function' then
-				return false
-			end
-			local s = tostring(x)
-			return string.find(s, "[\"`'=%s]") == nil
-		end
-		util.check_compat = check_compat
-		--[[function util.compat_serialize(t, key_prefix)
-			if t == nil then return "" end
-			assert(type(t) == 'table')
-			key_prefix = key_prefix or ""
-			local s = ""
-			for k, v in pairs(t) do
-				k = tostring(k)
-				v = tostring(v)
-				if not check_compat(k) then
-					util.logprint("table key failed compat check: "..k.."="..v)
-				elseif not check_compat(v) then
-					util.logprint("table value failed compat check: "..k.."="..v)
-				else
-					s = s..key_prefix..k.."="..v.." "
-				end
-			end
-			return string.sub(s, 1, -2)
-		end--]]
-		
 		function util.new_compat_serialize(t)
 			if t == nil then return "" end
 			assert(type(t) == 'table')
@@ -450,13 +422,8 @@ util.debug_detail_level = 0
 			for k, v in pairs(t) do
 				k = tostring(k)
 				v = tostring(v)
-				if not check_compat(k) then
-					util.logprint("table key failed compat check: "..k.."="..v)
-				elseif not check_compat(v) then
-					util.logprint("table value failed compat check: "..k.."="..v)
-				else
-					lines[#lines+1] = k.."="..v
-				end
+				-- TODO: warn about unescaped newlines
+				lines[#lines+1] = k.."="..v
 			end
 			table.sort(lines)
 			return table.concat(lines, "\n")
