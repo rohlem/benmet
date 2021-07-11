@@ -136,6 +136,8 @@ function features.step_split_inputs_table_into_special_params_default_values(ste
 			end
 		elseif k == 'RUN-id' then
 			special_params.wants_run_id = true
+		elseif k == 'RUN-hostname' then
+			special_params.wants_hostname = true
 		elseif k == 'RUN-all-params' then
 			special_params.wants_all_params = true
 		else
@@ -176,6 +178,7 @@ local step_construct_effective_inputs_lookup_from_special_params_default_values_
 	end
 	
 	effective_inputs_lookup['RUN-id'] = special_params.wants_run_id or nil
+	effective_inputs_lookup['RUN-hostname'] = special_params.wants_hostname or nil
 	
 	return effective_inputs_lookup
 end
@@ -391,6 +394,12 @@ local step_single_process_params_active_in_special_hash_run_path = function(step
 	--provide run id if requested
 	if special_params.wants_run_id then
 		ensure_run_id_in_place(params)
+	end
+	
+	-- provide hostname if requested
+	if special_params.wants_hostname then
+		params['RUN-hostname'] = params['RUN-hostname']
+			or util.get_hostname()
 	end
 	
 	-- calculate the step run's identifying hash
