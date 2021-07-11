@@ -1024,6 +1024,18 @@ util.debug_detail_level = 0
 		function util.write_param_file_new_compat_serialize(path, params)
 			util.write_full_file(path, util.new_compat_serialize(params))
 		end
+		
+		local cached_hostname
+		install_delayed_impl_selector(util, 'get_hostname', {
+			function() return find_program("hostname") end, function()
+				if not cached_hostname then
+					cached_hostname = util.execute_command("hostname")
+						or "(hostname-failed)"
+				end
+				return cached_hostname
+			end,
+			true, function() return "(hostname-unavailable)" end,
+		})
 	
 	-- git (repository)
 		function util.is_git_repository(path)
