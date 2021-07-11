@@ -34,6 +34,7 @@ do
 	while arg[min_index-1] ~= nil do
 		min_index = min_index - 1
 	end
+	_G.benmet_lua_program_command = arg[min_index]
 	program_invocation_string_without_args = table.concat(arg, " ", min_index, 0)
 end
 

@@ -594,7 +594,8 @@ util.debug_detail_level = 0
 			return table.concat(prefixed_elements, ";")
 		end
 		
-		util.lua_program = util.find_program("lua53")
+		util.lua_program = _G.benmet_lua_program_command
+			or util.find_program("lua53")
 			or util.find_program("lua5.3")
 			or util.find_program("lua")
 		
