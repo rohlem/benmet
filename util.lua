@@ -172,13 +172,13 @@ util.debug_detail_level = 0
 		function util.tables_shallow_equal(a, b)
 			for k,v in pairs(a) do
 				if b[k] ~= v then
-					util.debugprint("not equal in '"..tostring(k).."': "..tostring(b[k])..", "..v)
+					util.debugprint("not equal in '"..tostring(k).."': "..tostring(b[k])..", "..tostring(v))
 					return false
 				end
 			end
 			for k,v in pairs(b) do
 				if a[k] ~= v then
-					util.debugprint("not equal in '"..tostring(k).."': "..tostring(a[k])..", "..v)
+					util.debugprint("not equal in '"..tostring(k).."': "..tostring(a[k])..", "..tostring(v))
 					return false
 				end
 			end
