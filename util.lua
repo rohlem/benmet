@@ -1048,7 +1048,8 @@ util.debug_detail_level = 0
 			function() return util.find_program("hostname") end, function()
 				if not cached_hostname then
 					local success, exit_type, return_status, program_output = util.execute_command("hostname")
-					cached_hostname = program_output or "(hostname-failed)"
+					cached_hostname = program_output and util.cut_trailing_space(program_output)
+						or "(hostname-failed)"
 				end
 				return cached_hostname
 			end,
