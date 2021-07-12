@@ -576,22 +576,22 @@ util.debug_detail_level = 0
 	-- Lua stuff (for launching subprocesses):
 		-- For 'require' within the step scripts to find our modules, mainly 'benmet.util' and 'benmet.step_templates',
 		-- we want to execute the script with a package path pointing to the same directories,
-		-- so relative paths need to be adjusted to nesting.
-		local package_path_elements = util.string_split(package.path, ";")
-		local relative_package_path_element_indices = {}
-		for i = 1, #package_path_elements do
-			local e = package_path_elements[i]
+		-- so if they are relative paths they need to be adjusted to nesting.
+		local benmet_package_path_elements = util.string_split(_G.benmet_package_path_prefix, ";")
+		local relative_benmet_package_path_element_indices = {}
+		for i = 1, #benmet_package_path_elements do
+			local e = benmet_package_path_elements[i]
 			if #e > 0 and not util.path_is_absolute(e) then
-				relative_package_path_element_indices[#relative_package_path_element_indices+1] = i
+				relative_benmet_package_path_element_indices[#relative_benmet_package_path_element_indices+1] = i
 			end
 		end
 		function util.relative_prefixed_package_path(relative_prefix)
-			local prefixed_elements = table_copy_shallow(package_path_elements)
-			for i = 1, #relative_package_path_element_indices do
-				local index = relative_package_path_element_indices[i]
+			local prefixed_elements = table_copy_shallow(benmet_package_path_elements)
+			for i = 1, #relative_benmet_package_path_element_indices do
+				local index = relative_benmet_package_path_element_indices[i]
 				prefixed_elements[index] = relative_prefix..prefixed_elements[index]
 			end
-			return table.concat(prefixed_elements, ";")
+			return table.concat(prefixed_elements, ";").._G.benmet_original_package_path
 		end
 		
 		local cached_lua_program
