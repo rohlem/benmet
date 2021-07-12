@@ -820,19 +820,22 @@ util.debug_detail_level = 0
 		
 		util.ensure_directory = util.ensure_directory_return_created
 		
-		function util.ensure_directories(path)
-			util.logprint("ensuring directories: "..path)
-			if not util.directory_exists(path) then
+		install_delayed_impl_selector(util, 'ensure_directories', {
+			function() return find_program('mkdir') end, function(path) -- if mkdir is a program, use the '-p' flag
+				path = util.in_quotes(path)
+				util.logprint("ensuring directories: "..path)
 				incdl()
-					local built_path = util.string_starts_with(path, "/") and "/"
-						or ""
-					for segment in string.gmatch(path, "([^/]+/?)") do
-						built_path = built_path..segment
-						util.ensure_directory(built_path)
-					end
+					assert(util.execute_command("mkdir -p "..path..util.discard_stderr_suffix))
 				decdl()
-			end
-		end
+			end,
+			--[[MKDIR might not be a program]] true, function(path) -- if MKDIR is the cmd command, this automatically creates all the parent directories as well.
+				path = util.in_quotes(path)
+				util.logprint("ensuring directories: "..path)
+				incdl()
+					assert(util.execute_command("MKDIR "..path..util.discard_stderr_suffix))
+				decdl()
+			end,
+		})
 		
 		install_delayed_impl_selector(util, 'remove_directory', {
 			function() return util.find_program("rm") end, function(path)
