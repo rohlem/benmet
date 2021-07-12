@@ -983,14 +983,21 @@ util.debug_detail_level = 0
 			
 			util.logprint("reading "..(path_or_nil and "file '"..path_or_nil.."'" or "stdin"))
 			
-			local file_success, file_error = (path_or_nil and io.open(path, 'r')
-				or pcall(io.input)) -- read from stdin if path is nil
+			local file_success, file_error
+			if path_or_nil then -- read from file if path was given
+				file_success, file_error = io.open(path_or_nil, 'r')
+			else -- read from stdin if path_or_nil is nil
+				file_success, file_error = pcall(io.input)
+				file_success = file_success and file_error
+			end
 			local file = assert(file_success, failure_prefix..tostring(file_error))
 			
 			local contents_success, contents_error = file:read('*a')
 			local contents = assert(contents_success, failure_prefix..tostring(contents_error))
 			
-			assert(file:close())
+			if path_or_nil then -- if we try to close stdin, we apparently trigger an error "cannot close standard file"
+				assert(file:close())
+			end
 			return contents
 		end
 		
