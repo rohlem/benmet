@@ -978,10 +978,13 @@ util.debug_detail_level = 0
 			return entry_index_name_path_in_directory_or_cleanup_iterator__next, file_names_in_directory, 0
 		end
 		
-		function util.read_full_file(path, failure_message)
+		local read_full_file_impl = function(path_or_nil, failure_message)
 			local failure_prefix = failure_message and failure_message.."\n" or ""
 			
-			local file_success, file_error = io.open(path, 'r')
+			util.logprint("reading "..(path_or_nil and "file '"..path_or_nil.."'" or "stdin"))
+			
+			local file_success, file_error = (path_or_nil and io.open(path, 'r')
+				or pcall(io.input)) -- read from stdin if path is nil
 			local file = assert(file_success, failure_prefix..tostring(file_error))
 			
 			local contents_success, contents_error = file:read('*a')
@@ -989,6 +992,14 @@ util.debug_detail_level = 0
 			
 			assert(file:close())
 			return contents
+		end
+		
+		function util.read_full_file(path, failure_message)
+			assert(path)
+			return read_full_file_impl(path, failure_message)
+		end
+		function util.read_full_stdin(failure_message)
+			return read_full_file_impl(nil, failure_message)
 		end
 		
 		function util.write_full_file(path, contents)
