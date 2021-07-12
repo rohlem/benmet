@@ -917,7 +917,7 @@ util.debug_detail_level = 0
 			--[[COPY is not a program]] true, function(source, destination)
 				util.logprint("copying file '"..source.."' to become file '"..destination.."'")
 				incdl()
-					assert(util.execute_command("copy /Y "..util.in_quotes(source).." "..util.in_quotes(destination)))
+					assert(util.execute_command("COPY /Y "..util.in_quotes(source).." "..util.in_quotes(destination)))
 				decdl()
 			end,
 		})
@@ -929,10 +929,10 @@ util.debug_detail_level = 0
 					assert(util.execute_command("cp -R -T "..util.in_quotes(source).." "..util.in_quotes(destination)))
 				decdl()
 			end,
-			function() return util.find_program("xcopy") end, function(source, destination)
+			function() return util.find_program("XCOPY") end, function(source, destination)
 				util.logprint("copying directory '"..source.."' to become directory '"..destination.."'")
 				incdl()
-					assert(util.execute_command("xcopy "..util.in_quotes(source).." "..util.in_quotes(destination).." /E /Q /Y"))
+					assert(util.execute_command("XCOPY /E /Q /Y "..util.in_quotes(source).." "..util.in_quotes(destination)))
 				decdl()
 			end,
 		})
