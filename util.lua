@@ -795,6 +795,7 @@ util.debug_detail_level = 0
 		end
 		
 		function util.create_new_directory(path)
+			path = util.in_quotes(path)
 			util.logprint("creating new directory: "..path)
 			incdl()
 				assert(util.execute_command("mkdir "..path..util.discard_stderr_suffix))
