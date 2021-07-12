@@ -1047,8 +1047,8 @@ util.debug_detail_level = 0
 		install_delayed_impl_selector(util, 'get_hostname', {
 			function() return util.find_program("hostname") end, function()
 				if not cached_hostname then
-					cached_hostname = util.execute_command("hostname")
-						or "(hostname-failed)"
+					local success, exit_type, return_status, program_output = util.execute_command("hostname")
+					cached_hostname = program_output or "(hostname-failed)"
 				end
 				return cached_hostname
 			end,
