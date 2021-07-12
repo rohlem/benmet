@@ -69,7 +69,7 @@ local benmet_lua_env_override_tables_by_relative_step_dir_path = {
 }
 -- directly invoke the given command of the given step at the given path (step run directory)
 local step_invoke_command_raw = function(at_path, command, relative_step_dir_path)
-	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.lua_program.." "..util.in_quotes(relative_step_dir_path.."run.lua").." "..command, benmet_lua_env_override_tables_by_relative_step_dir_path[relative_step_dir_path], at_path)
+	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.get_lua_program().." "..util.in_quotes(relative_step_dir_path.."run.lua").." "..command, benmet_lua_env_override_tables_by_relative_step_dir_path[relative_step_dir_path], at_path)
 	return success and program_output, return_status
 end
 

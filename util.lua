@@ -594,10 +594,16 @@ util.debug_detail_level = 0
 			return table.concat(prefixed_elements, ";")
 		end
 		
-		util.lua_program = _G.benmet_lua_program_command
-			or util.find_program("lua53")
-			or util.find_program("lua5.3")
-			or util.find_program("lua")
+		local cached_lua_program
+		install_delayed_impl_selector(util, 'get_lua_program', {
+			function() return _G.benmet_lua_program_command end, function () return _G.benmet_lua_program_command end,
+			function()
+					cached_lua_program = util.find_program("lua53")
+						or util.find_program("lua5.3")
+						or util.find_program("lua")
+					return cached_lua_program
+				end, function() return cached_lua_program end,
+		})
 		
 		-- the template table that is copied to be the _G of executed Lua scripts
 		-- note: this does not provide complete isolation, mainly stdin/stderr are still shared (could be closed),
