@@ -42,6 +42,7 @@ local option_param_file = {description = "use the given parameter file as initia
 
 local option_pipeline_default_params = {is_flag = true, description = "add an instance of all-defaulted parameters, as if supplying an empty parameter file"}
 local option_pipeline_all_params = {is_flag = true, description = "select all pipelines regardless of parameters"}
+local option_pipeline_params_from_stdin = {is_flag = true, description = "read standard input as an additional parameter file"}
 local option_pipeline_target = {description = "the target step of the pipeline(s)"} --TODO(potentially?): could be made optional if we had a default target step in dependencies.txt
 local option_pipeline_all_targets = {is_flag = true, description = "select all pipelines regardless of targets"}
 local option_pipeline_all = {is_flag = true, shorthand_for = {'all-targets', 'all-params'}, description = "select all pipelines"}
@@ -57,6 +58,7 @@ local pipeline_operation_structure_options = {
 		['target'] = option_pipeline_target,
 		['all-targets'] = option_pipeline_all_targets,
 		['default-params'] = option_pipeline_default_params,
+		['params-from-stdin'] = option_pipeline_params_from_stdin,
 		['all-params'] = option_pipeline_all_params,
 		['all'] = option_pipeline_all,
 		['ignore-param'] = option_pipeline_ignore_param,
@@ -68,6 +70,7 @@ local pipeline_operation_structure_options_with_error_state_handling = {
 		['target'] = option_pipeline_target,
 		['all-targets'] = option_pipeline_all_targets,
 		['default-params'] = option_pipeline_default_params,
+		['params-from-stdin'] = option_pipeline_params_from_stdin,
 		['all-params'] = option_pipeline_all_params,
 		['all'] = option_pipeline_all,
 		['include-errors'] = {is_flag = true, description = "also select pipelines with error status"},
@@ -118,14 +121,15 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 			arguments[i] = nil
 		end
 		
-		if #param_files > 0 then
+		local read_stdin_as_file = options['params-from-stdin']
+		if #param_files > 0 or read_stdin_as_file then
 			assert(not no_iterators_flag, "option '--all-params' incompatible with parameter file arguments")
 			local failed_parsing_parameter_files = {}
 			-- creating a parameter iterator from a given parameter file
-			local initial_param_iterator_from_param_file_constructor = function(param_file)
+			local initial_param_iterator_from_param_file_contents_constructor = function(param_file_name, reading_file_success, file_contents)
 					-- first read the file
 					local error_message, parsing_mode_hint = "(error message uninitialized)", "(error hint uninitialized)"
-					local successful, file_contents = pcall(util.read_full_file, param_file)
+					local successful = reading_file_success
 					if not successful then
 						error_message = file_contents
 						parsing_mode_hint = "(error reading file) "
@@ -167,7 +171,7 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 					end
 					-- in case of error, we fall through to here
 					-- add the file to our list of parsing failures
-					failed_parsing_parameter_files[#failed_parsing_parameter_files+1] = param_file .. ": "..tostring(parsing_mode_hint)..tostring(error_message)
+					failed_parsing_parameter_files[#failed_parsing_parameter_files+1] = param_file_name .. ": "..tostring(parsing_mode_hint)..tostring(error_message)
 					-- return an empty iterator
 					return empty_iterator__next
 				end
@@ -175,7 +179,12 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 			for i = 1, #param_files do
 				local param_file = param_files[i]
 				iterator_constructor_list[#iterator_constructor_list+1] = function()
-						return initial_param_iterator_from_param_file_constructor(param_file)
+						return initial_param_iterator_from_param_file_contents_constructor(param_file, pcall(util.read_full_file, param_file))
+					end
+			end
+			if read_stdin_as_file then
+				iterator_constructor_list[#iterator_constructor_list+1] = function()
+						return initial_param_iterator_from_param_file_contents_constructor('(stdin)', pcall(util.read_full_stdin))
 					end
 			end
 			warning_printer_list[#warning_printer_list+1] = function()
@@ -669,6 +678,7 @@ local program_command_structures = {
 			['target'] = {required = true, description = "the target step of the pipeline(s)"}, --TODO(potentially?): could be made optional if we had a default target step in dependencies.txt
 			-- TODO (potentially?): also implement 'all-targets' option flag
 			['default-params'] = option_pipeline_default_params,
+			['params-from-stdin'] = option_pipeline_params_from_stdin,
 			-- no-continue: don't continue an encountered already-continuable step
 			-- force-relaunch: delete all previously-existing step runs this pipeline incorporates -- would absolutely need dependency collision detection if implemented!
 			['ignore-param'] = option_pipeline_ignore_param,
