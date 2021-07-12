@@ -99,10 +99,8 @@ util.debug_detail_level = 0
 			if util.string_starts_with(s, '"') and util.string_ends_with(s, '"') then
 				return s
 			end
-			s = string.format("%q", s)
-			if util.system_type == 'windows' then
-				s = string.gsub(s, "\\\\", "\\")
-			end
+			s = string.format("%q", s) -- FIXME: probably wrong, a manual string.gsub with replacement table might be better?
+			s = string.gsub(s, "\\\\", "\\") -- undo doubling by string.format "%q"
 			return s
 		end
 		function util.in_quotes_with_backslashes(s)
