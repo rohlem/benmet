@@ -680,6 +680,10 @@ local program_command_structures = {
 		implementation = function(features, util, arguments, options)
 			local target_step_name = options.target[1]
 			
+			-- parse parameter iterators; note that option '--all-params' is not available for this command, so would have been rejected during argument parsing
+			local parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
+			assert(#parameter_iterator_constructors > 0, "no parameter files specified, no pipelines launched (pass --default-params to launch a pipeline with default parameters)")
+			
 			-- option parsing/checking
 			local param_coercer_provider, param_coercion_warning_printer = parse_unrecognized_param_coercer_provider_and_warning_printer_from_pipeline_options(features, util, options)
 			
@@ -694,10 +698,6 @@ local program_command_structures = {
 						print("Error launching pipeline: "..err)
 					end
 				end
-			
-			-- parse parameter iterators; note that option '--all-params' is not available for this command, so would have been rejected during argument parsing
-			local parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
-			assert(#parameter_iterator_constructors > 0, "no parameter files specified, no pipelines launched (pass --default-params to launch a pipeline with default parameters)")
 			
 			local param_coercer = param_coercer_provider(target_step_name)
 			-- iterate over parameter iterators
