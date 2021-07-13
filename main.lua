@@ -23,15 +23,6 @@ do -- set up package.path for importing other benmet code via `require`
 	_G.benmet_main_script_dir_path = main_script_dir_path -- used by benmet.util in import error messages and to add the lunajson package path
 end
 
-
-
--- load program command specifications and implementations
-local program_command_structures = require 'benmet.commands'
-
-
-
--- help text code
-
 local program_invocation_string_without_args -- used in help text syntax examples
 do
 	local min_index = 0
@@ -41,6 +32,15 @@ do
 	_G.benmet_lua_program_command = arg[min_index]
 	program_invocation_string_without_args = table.concat(arg, " ", min_index, 0)
 end
+
+
+
+-- load program command specifications and implementations
+local program_command_structures = require 'benmet.commands'
+
+
+
+-- help text code
 
 local help_list_commands = function()
 	print("usage: "..program_invocation_string_without_args.." <command> <further-args...>"
