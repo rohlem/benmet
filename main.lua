@@ -10,17 +10,20 @@ _G.benmet_relative_path_prefix = relative_path_prefix
 
 
 do -- set up package.path for importing other benmet code via `require`
-	_G.benmet_original_package_path = package.path -- used by benmet.util.relative_prefixed_package_path: relative paths in here are not adjusted, instead suffixed as-is
+	local original_package_path = package.path
+	_G.benmet_get_original_package_path = function() return original_package_path end -- used by benmet.util.relative_prefixed_package_path: relative paths in here are not adjusted, instead suffixed as-is
 	
 	local main_script_dir_path = string.match(arg[0], "^(.-)[^/%\\]+[/%\\]*$")
 	main_script_dir_path = #main_script_dir_path > 0 and main_script_dir_path or "."
 	local benmet_path = main_script_dir_path.."/../?.lua;"
 	local lunajson_path = main_script_dir_path.."../lunajson/src/?.lua;"
 	
-	_G.benmet_package_path_prefix = benmet_path..lunajson_path -- used by benmet.util.relative_prefixed_package_path: relative paths in here are adjusted
-	package.path = _G.benmet_package_path_prefix..package.path
+	local benmet_package_path_prefix = benmet_path..lunajson_path
 	
-	_G.benmet_main_script_dir_path = main_script_dir_path -- used by benmet.util in import error messages and to add the lunajson package path
+	_G.benmet_get_package_path_prefix = function() return benmet_package_path_prefix end -- used by benmet.util.relative_prefixed_package_path: relative paths in here are adjusted
+	package.path = benmet_package_path_prefix..package.path
+	
+	_G.benmet_get_main_script_dir_path = function() return main_script_dir_path end -- used by benmet.util in import error messages and to add the lunajson package path
 end
 
 local program_invocation_string_without_args -- used in help text syntax examples
@@ -29,7 +32,8 @@ do
 	while arg[min_index-1] ~= nil do
 		min_index = min_index - 1
 	end
-	_G.benmet_lua_program_command = arg[min_index]
+	local benmet_lua_program_command = arg[min_index]
+	_G.benmet_get_lua_program_command = function() return benmet_lua_program_command end
 	program_invocation_string_without_args = table.concat(arg, " ", min_index, 0)
 end
 

@@ -2,7 +2,7 @@
 local md5
 local json_encode, json_decode
 
-local main_script_dir_path = _G.benmet_main_script_dir_path
+local main_script_dir_path = _G.benmet_get_main_script_dir_path()
 local clone_dir_hint = main_script_dir_path and "into "..main_script_dir_path.."/.."
 	or "next to 'benmet' (this file's parent directory)"
 do
@@ -575,7 +575,7 @@ util.debug_detail_level = 0
 		-- For 'require' within the step scripts to find our modules, mainly 'benmet.util' and 'benmet.step_templates',
 		-- we want to execute the script with a package path pointing to the same directories,
 		-- so if they are relative paths they need to be adjusted to nesting.
-		local benmet_package_path_elements = util.string_split(_G.benmet_package_path_prefix, ";")
+		local benmet_package_path_elements = util.string_split(_G.benmet_get_package_path_prefix(), ";")
 		local relative_benmet_package_path_element_indices = {}
 		for i = 1, #benmet_package_path_elements do
 			local e = benmet_package_path_elements[i]
@@ -589,12 +589,12 @@ util.debug_detail_level = 0
 				local index = relative_benmet_package_path_element_indices[i]
 				prefixed_elements[index] = relative_prefix..prefixed_elements[index]
 			end
-			return table.concat(prefixed_elements, ";").._G.benmet_original_package_path
+			return table.concat(prefixed_elements, ";").._G.benmet_get_original_package_path()
 		end
 		
 		local cached_lua_program
 		install_delayed_impl_selector(util, 'get_lua_program', {
-			function() return _G.benmet_lua_program_command end, function () return _G.benmet_lua_program_command end,
+			function() return _G.benmet_get_lua_program_command end, function() return util.in_quotes(_G.benmet_get_lua_program_command()) end,
 			function()
 					cached_lua_program = util.find_program("lua53")
 						or util.find_program("lua5.3")
