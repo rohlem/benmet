@@ -434,7 +434,7 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 						-- now we iterate over the individual pipeline files within each directory
 						for _, pipeline_file_name, pipeline_file_path in entry_index_name_path_in_directory_or_cleanup_iterator(hash_dir_path) do
 							-- we read the initial parameters from the pipeline file
-							local initial_params = util.read_param_file_new_compat_deserialize(pipeline_file_path)
+							local initial_params = util.read_param_file_new_compat_deserialize(pipeline_file_path, "failed reading initial params from parameter file")
 							with_target_step_name_initial_params_pipeline_file_path_f(target_step_name, initial_params, pipeline_file_path)
 							any_found = true
 						end
