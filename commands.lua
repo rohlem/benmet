@@ -922,9 +922,9 @@ local program_command_structures = {
 								print("Warning: JSON file '"..file_path.."' contained some entries without the expected property '"..param_name.."'")
 							end
 						else
-							print("Warning: failed to parse JSON array from file '"..file_path.."'")
+							print("Warning: failed to parse JSON array from file '"..file_path.."': "..tostring(array))
 						end
-					else -- file does not seem to contain JSON
+					else -- file does not seem to contain a JSON array
 						local entries, key_lookup
 						successful, entries, key_lookup = pcall(util.new_compat_deserialize_multivalue, file_contents)
 						if successful then
@@ -937,11 +937,11 @@ local program_command_structures = {
 								util.list_append_in_place(commit_expression_list, values)
 							end
 						else
-							print("Warning: failed to parse param file '"..file_path.."'")
+							print("Warning: failed to parse param file '"..file_path.."': "..tostring(entries))
 						end
 					end
 				else
-					print("Warning: failed to read file '"..file_path.."'")
+					print("Warning: failed to read file '"..file_path.."': "..tostring(file_contents))
 				end
 			end
 			if #commit_expression_list == 0 then
