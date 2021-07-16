@@ -427,70 +427,170 @@ util.debug_detail_level = 0
 			return table.concat(lines, "\n")
 		end
 		
-		function util.new_compat_deserialize(s, failure_message)
-			local failure_prefix = failure_message and failure_message.."\n" or ""
-			local t = {}
-			for k, v in string.gmatch(s, "([^%s=]*)=([^\n]*)") do
-				if k ~= "" then
-					if t[k] ~= nil then
-						error(failure_prefix.."encountered duplicate key assignment: ["..k.."] = "..t[k]..", then = "..v)
+		-- helper function asserting that all keys are strings and
+		-- all entries are non-identity primitives (strings, numbers or booleans);
+		-- returns a table with values converted to strings
+		local ensure_strings_in_json_param_entry = function(entry)
+				local t = {}
+				for k,v in pairs(entry) do -- translate keys and values to strings, as we would expect from our line-based format
+					local k_type = type(k)
+					if k_type ~= 'string' then
+						error("non-string param name from parsed JSON: type '"..k_type.."'")
 					end
+					assert(k ~= "", "invalid param name \"\" (empty string) encountered in parsed JSON")
+					local v_type = type(v)
+					if v_type ~= 'string' and v_type ~= 'number' and v_type ~= 'boolean' then
+						error("encountered unexpected type as value of parameter '"..k.."' from parsed JSON: type '"..v_type.."'")
+					end
+					v = tostring(v)
 					t[k] = v
 				end
+				return t
 			end
-			return t
-		end
-		
-		function util.new_compat_deserialize_multientry(s)
-			local entries = {}
-			local t
-			-- inline string tokenization
-			local s_length_1 = #s + 1
-			local prev_end_pos = 0
-			repeat
-				local next_start_pos, next_end_pos = string.find(s, "\n", prev_end_pos+1, true)
-				local line = (next_start_pos or s_length_1) > prev_end_pos+1 and string.sub(s, prev_end_pos+1, next_start_pos and next_start_pos-1)
-				prev_end_pos = next_end_pos
-				if line then
-					local k, v = string.match(line, "([^%s=]*)=(.*)")
-					if k == "" then -- entry separator
-						t = nil
-					else -- property line within entry
-						if not t then
-							t = {}
-							entries[#entries+1] = t
-						end
+		-- deserialize one coordinate of parameters from either a JSON object (starting with "{") or our line-based format
+		function util.new_compat_deserialize(s, failure_message)
+			local failure_prefix = failure_message and failure_message.."\n" or ""
+			if string.match(s, "^%s*{") then -- looks like a JSON object
+				failure_prefix = failure_prefix ~= "" and failure_prefix.."(trying to parse params as JSON object)\n"
+					or "error trying to parse params as JSON object: "
+				-- decode, then ensure it's all strings as it would be coming from our line-based format
+				local successful, parsed = pcall(json_decode, s)
+				if not successful then
+					error(failure_prefix..tostring(parsed))
+				end
+				return ensure_strings_in_json_param_entry(parsed)
+			else -- parse as our line-based format
+				local t = {}
+				for k, v in string.gmatch(s, "([^%s=]*)=([^\n]*)") do
+					if k ~= "" then
 						if t[k] ~= nil then
-							error("encountered duplicate key assignment: ["..k.."] = "..t[k]..", then = "..v)
+							error(failure_prefix.."encountered duplicate key assignment: ["..k.."] = "..t[k]..", then = "..v)
 						end
 						t[k] = v
 					end
 				end
-			until not next_start_pos
-			return entries
+				return t
+			end
 		end
 		
+		-- deserialize multiple parameters from either
+		-- a JSON array (starting with "[") containing objects holding parameter coordinates,
+		-- or our line-based format, where entries are separated by lines starting with "="
+		function util.new_compat_deserialize_multientry(s)
+			if string.match(s, "^%s*[") then -- looks like a JSON array
+				-- decode the array
+				local successful, parsed = pcall(json_decode, s)
+				if not successful then
+					error("error trying to parse multi-entry params as JSON array: "..tostring(parsed))
+				end
+				-- ensure every entry is all strings, as it would be coming from our line-based format
+				local entries = {}
+				for i = 1, #parsed do
+					entry[i] = ensure_strings_in_json_param_entry(parsed[i])
+				end
+				return entries
+			else -- parse our line-based format
+				local entries = {}
+				local t
+				-- inline string tokenization
+				local s_length_1 = #s + 1
+				local prev_end_pos = 0
+				repeat
+					local next_start_pos, next_end_pos = string.find(s, "\n", prev_end_pos+1, true)
+					local line = (next_start_pos or s_length_1) > prev_end_pos+1 and string.sub(s, prev_end_pos+1, next_start_pos and next_start_pos-1)
+					prev_end_pos = next_end_pos
+					if line then
+						local k, v = string.match(line, "([^%s=]*)=(.*)")
+						if k == "" then -- entry separator
+							t = nil
+						else -- property line within entry
+							if not t then
+								t = {}
+								entries[#entries+1] = t
+							end
+							if t[k] ~= nil then
+								error("encountered duplicate key assignment: ["..k.."] = "..t[k]..", then = "..v)
+							end
+							t[k] = v
+						end
+					end
+				until not next_start_pos
+				return entries
+			end
+		end
+		
+		-- deserialize multi-valued parameters from either
+		-- a JSON object (starting with "{") containing either single values or arrays of values,
+		-- or our line-based format allowed to contain multiple assignments to the same property
 		function util.new_compat_deserialize_multivalue(s)
 			local key_index_lookup = {}
 			local entries = {}
-			for k, v in string.gmatch(s, "([^%s=]*)=([^\n]*)") do
-				if k ~= "" then
-					local key_index = key_index_lookup[k]
-					if not key_index then
-						key_index = #entries+1
-						key_index_lookup[k] = key_index
+			if string.match(s, "^%s*{") then -- looks like a JSON object
+				local successful, parsed = pcall(json_decode, s)
+				if not successful then
+					error("error trying to parse multivalue params as JSON object: "..tostring(parsed))
+				end
+				for k, parsed_entry in pairs(parsed) do
+					local k_type = type(k)
+					if k_type ~= 'string' then
+						error("non-string param name from parsed JSON: type '"..k_type.."'")
 					end
-					local entry = entries[key_index]
-					if not entry then
-						entry = {k, {v}}
-						entries[key_index] = entry
-					else
-						local values = entry[2]
-						values[#values+1] = v
+					assert(k ~= "", "invalid param name \"\" (empty string) encountered in parsed JSON")
+					local key_index = #entries+1
+					key_index_lookup[k] = key_index
+					local entry_type = type(parsed_entry)
+					if entry_type == 'table' then -- table elements must be arrays holding permissible individual values
+						local entry_values = {}
+						entries[key_index] = {k, entry_values}
+						 -- iterate over all numbered entries (assuming it is an array) and move them over to entry_values
+						for i = 1, #parsed_entry do
+							local v = parsed_entry[i]
+							local v_type = type(v)
+							if v_type ~= 'string' and v_type ~= 'number' and v_type ~= 'boolean' then
+								error("encountered unexpected type '"..v_type.."' as element in array value of parameter '"..k.."' from parsed JSON")
+							end
+							v = tostring(v)
+							entry_values[i] = v
+							parsed_entry[i] = nil
+						end
+						-- if there are any entries left, the array contained null entries, or it was an object (with string keys)
+						for k in pairs(parsed_entry) do
+							if type(k) == 'number' then
+								error("error trying to parse multivalue params as JSON object: did not reach index "..k.." of array value; note that 'null' in array values is not permitted")
+							else
+								error("error trying to parse multivalue params as JSON object: found non-number index '"..tostring(k).."', values may only be arrays, not objects")
+							end
+						end
+						-- we additionally require that the array cannot be empty
+						assert(#entry_values > 0, "error trying to parse multivalue params as JSON object: value array cannot be empty")
+					else -- non-table elements are individual values, which we wrap in a table for consistency
+						if entry_type ~= 'string' and entry_type ~= 'number' and entry_type ~= 'boolean' then
+							error("encountered unexpected type '"..entry_type.."' as element in array value of parameter '"..k.."' from parsed JSON")
+						end
+						entries[key_index] = {k, {tostring(parsed_entry)}}
 					end
 				end
+				return entries, key_index_lookup
+			else -- parse our line-based format
+				for k, v in string.gmatch(s, "([^%s=]*)=([^\n]*)") do
+					if k ~= "" then
+						local key_index = key_index_lookup[k]
+						if not key_index then
+							key_index = #entries+1
+							key_index_lookup[k] = key_index
+						end
+						local entry = entries[key_index]
+						if not entry then
+							entry = {k, {v}}
+							entries[key_index] = entry
+						else
+							local values = entry[2]
+							values[#values+1] = v
+						end
+					end
+				end
+				return entries, key_index_lookup
 			end
-			return entries, key_index_lookup
 		end
 		local order_multivalue_entries_by_value_count_asc = function(a, b)
 				return #a[2] < #b[2]
