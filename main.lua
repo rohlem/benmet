@@ -13,9 +13,9 @@ do -- set up package.path for importing other benmet code via `require`
 	local original_package_path = package.path
 	_G.benmet_get_original_package_path = function() return original_package_path end -- used by benmet.util.relative_prefixed_package_path: relative paths in here are not adjusted, instead suffixed as-is
 	
-	local main_script_dir_path = string.match(arg[0], "^(.-)[^/%\\]+[/%\\]*$")
-	main_script_dir_path = #main_script_dir_path > 0 and main_script_dir_path or "."
-	local benmet_path = main_script_dir_path.."/../?.lua;"
+	main_script_dir_path = string.match(arg[0], "^(.-)[^/%\\]*$")
+	main_script_dir_path = #main_script_dir_path > 0 and main_script_dir_path or "./"
+	local benmet_path = main_script_dir_path.."../?.lua;"
 	local lunajson_path = main_script_dir_path.."../lunajson/src/?.lua;"
 	
 	local benmet_package_path_prefix = benmet_path..lunajson_path
