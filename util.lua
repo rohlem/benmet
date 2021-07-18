@@ -753,24 +753,47 @@ util.debug_detail_level = 0
 		end
 		
 	-- Lua stuff (for launching subprocesses):
+		-- splits a path template string (used in package.path and package.searchpath) into its elements
+		-- and returns a list of indices of elements that are relative paths;
+		-- caches its results
+		local split_path_template_string__cache = new_weakly_keyed_table()
+		local relative_path_template_element_indices__cache = new_weakly_keyed_table()
+		local split_path_template_string_and_collect_relative_path_element_indices = function(path_template_string)
+				local split_path_template_string = split_path_template_string__cache[path_template_string]
+				if not split_path_template_string then
+					split_path_template_string = util.string_split(path_template_string, ";")
+					split_path_template_string__cache[path_template_string] = split_path_template_string
+				end
+				
+				local relative_path_template_element_indices = relative_path_template_element_indices__cache[path_template_string]
+				if not relative_path_template_element_indices then
+					relative_path_template_element_indices = {}
+					for i = 1, #split_path_template_string do
+						local e = split_path_template_string[i]
+						if #e > 0 and not util.path_is_absolute(e) then
+							relative_path_template_element_indices[#relative_path_template_element_indices+1] = i
+						end
+					end
+					relative_path_template_element_indices__cache[path_template_string] = relative_path_template_element_indices
+				end
+				
+				return split_path_template_string, relative_path_template_element_indices
+			end
+		-- return the given path template string, with all relative paths prefixed by the given prefix
+		function util.prefix_relative_path_templates_in_string(path_template_string, relative_path_prefix)
+				local elements, relative_element_indices = split_path_template_string_and_collect_relative_path_element_indices(path_template_string)
+				elements = util.list_copy_shallow(elements)
+				for i = 1, #relative_element_indices do
+					local element_index = relative_element_indices[i]
+					elements[element_index] = relative_path_prefix..elements[element_index]
+				end
+				return table.concat(elements, ";")
+			end
 		-- For 'require' within the step scripts to find our modules, mainly 'benmet.util' and 'benmet.step_templates',
 		-- we want to execute the script with a package path pointing to the same directories,
 		-- so if they are relative paths they need to be adjusted to nesting.
-		local benmet_package_path_elements = util.string_split(_G.benmet_get_package_path_prefix(), ";")
-		local relative_benmet_package_path_element_indices = {}
-		for i = 1, #benmet_package_path_elements do
-			local e = benmet_package_path_elements[i]
-			if #e > 0 and not util.path_is_absolute(e) then
-				relative_benmet_package_path_element_indices[#relative_benmet_package_path_element_indices+1] = i
-			end
-		end
 		function util.relative_prefixed_package_path(relative_prefix)
-			local prefixed_elements = table_copy_shallow(benmet_package_path_elements)
-			for i = 1, #relative_benmet_package_path_element_indices do
-				local index = relative_benmet_package_path_element_indices[i]
-				prefixed_elements[index] = relative_prefix..prefixed_elements[index]
-			end
-			return table.concat(prefixed_elements, ";").._G.benmet_get_original_package_path()
+			return util.prefix_relative_path_templates_in_string(_G.benmet_get_package_path_prefix(), relative_prefix).._G.benmet_get_original_package_path()
 		end
 		
 		local cached_lua_program
