@@ -1023,7 +1023,7 @@ util.debug_detail_level = 0
 		util.ensure_directory = util.ensure_directory_return_created
 		
 		install_delayed_impl_selector(util, 'ensure_directories', {
-			function() return find_program('mkdir') end, function(path) -- if mkdir is a program, use the '-p' flag
+			function() return util.find_program('mkdir') end, function(path) -- if mkdir is a program, use the '-p' flag
 				path = util.in_quotes(path)
 				util.logprint("ensuring directories: "..path)
 				incdl()
