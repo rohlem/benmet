@@ -136,7 +136,7 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 						-- fallthrough
 					else
 						-- next see if the beginning looks like a JSON array
-						if string.match(file_contents, "%w*%[") then
+						if string.match(file_contents, "^%w*%[") then
 							-- parse it as JSON
 							parsing_mode_hint = "(tried parsing as JSON array) "
 							local param_array
@@ -899,7 +899,7 @@ local program_command_structures = {
 				local file_path = file_path_list[i]
 				local successful, file_contents = pcall(util.read_full_file, file_path)
 				if successful then
-					if string.match(file_contents, "%w*%[") then -- beginning looks like a JSON array
+					if string.match(file_contents, "^%w*%[") then -- beginning looks like a JSON array
 						local array
 						successful, array = pcall(util.json_decode, file_contents)
 						if successful then
