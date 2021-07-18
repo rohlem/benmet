@@ -645,7 +645,7 @@ util.debug_detail_level = 0
 		function util.combinatorial_iterator_one_from_each_sublist(table_of_sublists)
 			-- convert to our multivalue_entries format
 			local multivalue_entries = {}
-			for k,v in pairs(list_of_sublists) do
+			for k,v in pairs(table_of_sublists) do
 				if type(v) ~= 'table' then -- auto-wrap non-list values
 					v = {v}
 				end
