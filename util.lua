@@ -646,7 +646,9 @@ util.debug_detail_level = 0
 			-- convert to our multivalue_entries format
 			local multivalue_entries = {}
 			for k,v in pairs(list_of_sublists) do
-				assert(type(v) == 'table', "given value is not a table of sublists") -- alternatively we could auto-wrap in this case
+				if type(v) ~= 'table' then -- auto-wrap non-list values
+					v = {v}
+				end
 				multivalue_entries[#multivalue_entries+1] = {k, v}
 			end
 			-- sort the entries for asymptotically faster iteration
@@ -654,6 +656,65 @@ util.debug_detail_level = 0
 			-- return the iterator
 			return util.all_combinations_of_multivalues(multivalue_entries)
 		end
+		
+		local all_combinations_of_multivalues_in_list_impl_passthrough_or_recur -- forward declaration to allow mutual recursion
+		local all_combinations_of_multivalues_in_list_impl = function(state, prev_nested_iterator_index)
+				local current_nested_iterator, current_nested_iterator_state = state[3], state[4]
+				if current_nested_iterator == nil then -- handle the next element in the input array
+					-- get the next array entry
+					local next_index = state[2]+1
+					state[2] = next_index
+					local input_array = state[1]
+					if next_index > #input_array then -- we reached the end
+						return nil
+					end
+					local next_input = input_array[next_index]
+					-- determine what iterator to use for this element
+					-- check if one of the elements is a list
+					local has_list_element
+					for k,v in pairs(next_input) do
+						if type(v) == 'table' then
+							assert(#v > 0, "sublists must be non-empty arrays without null entries")
+							for i = 1, #v do
+								local entry = v[i]
+								local entry_type = type(entry)
+								v[i] = strict_tostring(entry, "unsupported value type at input_array[", next_index, "].", k, "[", i, "]: ")
+							end
+							has_list_element = true
+						else
+							next_input[k] = strict_tostring(v, "encountered unexpected value type at input_array[", next_index, "].", k, ": ")
+						end
+					end
+					-- if there was no list element, the next element is just this element verbatim
+					if not has_list_element then
+						return next_input
+					end
+					-- otherwise, we set up the combinatorial iterator over this element as nested iterator
+					current_nested_iterator, current_nested_iterator_state, prev_nested_iterator_index = util.combinatorial_iterator_one_from_each_sublist(next_input)
+					state[3], state[4] = current_nested_iterator, current_nested_iterator_state
+					-- fallthrough
+				end
+				
+				return all_combinations_of_multivalues_in_list_impl_passthrough_or_recur(state, current_nested_iterator(current_nested_iterator_state, prev_nested_iterator_index))
+			end
+		-- helper function, either passes through the new index and varargs,
+		-- or clears the nested iterator from the state and calls back to all_combinations_of_multivalues_in_list_impl
+		all_combinations_of_multivalues_in_list_impl_passthrough_or_recur = function(state, new_nested_iterator_index, ...)
+				if new_nested_iterator_index == nil then
+					state[3], state[4] = nil, nil
+					return all_combinations_of_multivalues_in_list_impl(state)
+				else
+					return new_nested_iterator_index, ...
+				end
+			end
+		-- iterates over every entry in multivalue_entries_array,
+		-- modifying elements in place to stringify non-string values,
+		-- returns elements without list values directly,
+		-- returns all combinations of elements with list values  (via util.combinatorial_iterator_one_from_each_sublist)
+		function util.all_combinations_of_multivalues_in_list(multivalue_entries_array)
+				local state = {multivalue_entries_array, 0}
+				return all_combinations_of_multivalues_in_list_impl, state
+			end
 		
 		function util.hash_params(params)
 			return md5(util.new_compat_serialize(params))
