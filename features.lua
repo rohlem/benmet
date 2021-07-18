@@ -197,6 +197,8 @@ function features.step_split_inputs_table_into_special_params_default_values(ste
 			special_params.wants_hostname = true
 		elseif k == 'RUN-all-params' then
 			special_params.wants_all_params = true
+		elseif k == 'SPECIAL-line-based-params-in' then
+			special_params.wants_line_based_params_in = true
 		else
 			if not util.string_starts_with(k, 'PARAM-') then
 				util.logprint("warning: unrecognized non-PARAM step input parameter: "..k)
@@ -566,7 +568,9 @@ local rebuild_step_run_dir = function(step_path, step_run_path, active_params, s
 	end
 	
 	-- write parameter file as last step, so parameters being present means that everything is ready
-	util.write_param_file_new_compat_serialize(step_run_path.."/params_in.txt", step_run_in_params) -- write params_in file
+	local params_in_string = special_params.wants_line_based_params_in and util.new_compat_serialize(step_run_in_params)
+		or util.json_encode(step_run_in_params)
+	util.write_full_file(step_run_path.."/params_in.txt", params_in_string) -- write params_in file
 end
 -- invokes the 'start' command of a step run directory at the given path for the given parameters is available
 local step_invoke_command_start = function(step_name, step_path, step_run_path, cache_hit, hash_collision, active_params, step_run_in_params, special_params)
