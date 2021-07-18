@@ -538,7 +538,7 @@ util.debug_detail_level = 0
 			if string.match(s, "^%s*{") then -- looks like a JSON object
 				local successful, parsed = pcall(json_decode, s)
 				if not successful then
-					error("error trying to parse multivalue params as JSON object: "..tostring(parsed))
+					error("error trying to parse multivalue params from JSON object: "..tostring(parsed))
 				end
 				for k, parsed_entry in pairs(parsed) do
 					local k_type = type(k)
@@ -560,15 +560,15 @@ util.debug_detail_level = 0
 						-- if there are any entries left, the array contained null entries, or it was an object (with string keys)
 						for k in pairs(parsed_entry) do
 							if type(k) == 'number' then
-								error("error trying to parse multivalue params as JSON object: did not reach index "..k.." of array value; note that 'null' in array values is not permitted")
+								error("error trying to parse multivalue params from JSON object: did not reach index "..k.." of array value; note that 'null' in array values is not permitted")
 							else
-								error("error trying to parse multivalue params as JSON object: found non-number index '"..tostring(k).."', values may only be arrays, not objects")
+								error("error trying to parse multivalue params from JSON object: found non-number index '"..tostring(k).."', values may only be arrays, not objects")
 							end
 						end
 						-- we additionally require that the array cannot be empty
-						assert(#entry_values > 0, "error trying to parse multivalue params as JSON object: value array cannot be empty")
+						assert(#entry_values > 0, "error trying to parse multivalue params from JSON object: value array cannot be empty")
 					else -- non-table elements are individual values, which we wrap in a table for consistency
-						entries[key_index] = {k, {strict_tostring(parsed_entry, "encountered unexpected type as element in array value of parameter '",k,"' from parsed JSON: ")}}
+						entries[key_index] = {k, {strict_tostring(parsed_entry, "encountered unexpected type as value of parameter '",k,"' from parsed JSON: ")}}
 					end
 				end
 				return entries, key_index_lookup
