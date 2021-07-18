@@ -2,7 +2,7 @@
 local md5
 local json_encode, json_decode
 
-local main_script_dir_path = _G.benmet_get_main_script_dir_path()
+local main_script_dir_path = _G.benmet_get_main_script_dir_path and _G.benmet_get_main_script_dir_path()
 local clone_dir_hint = main_script_dir_path and "into "..main_script_dir_path.."/.."
 	or "next to 'benmet' (this file's parent directory)"
 do
