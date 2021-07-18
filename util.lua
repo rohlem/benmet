@@ -290,6 +290,13 @@ util.debug_detail_level = 0
 			return array_element_iterator__next, {0, array} --[[, first_index=nil]]
 		end
 		
+		local weakly_keyed_table_mt = {__mode = 'k'}
+		local new_weakly_keyed_table = function(t)
+			t = t or {}
+			return setmetatable(t, weakly_keyed_table_mt)
+		end
+		util.new_weakly_keyed_table = new_weakly_keyed_table
+		
 		-- This function constructs and assigns to t[index]
 		-- a proxy function that selects the actual implementation from a list
 		-- and then assigns and calls the selected implementation.
