@@ -907,9 +907,22 @@ local program_command_structures = {
 							local no_entries_had_hash = true
 							for i = 1, #array do
 								local entry_hash = array[i][param_name]
-								commit_expression_list[#commit_expression_list+1] = entry_hash
-								all_entries_had_hash = all_entries_had_hash and entry_hash
-								no_entries_had_hash = no_entries_had_hash and not entry_hash
+								if entry_hash then
+									local entry_hash_type = type(entry_hash) -- could be an array of hashes if it's from a multivalue parameter specification
+									if entry_hash_type == 'table' then
+										if #entry_hash > 0 then
+											no_entries_had_hash = false
+											util.list_append_in_place(commit_expression_list, entry_hash)
+										else
+											all_entries_had_hash = false
+										end
+									else
+										no_entries_had_hash = false
+										commit_expression_list[#commit_expression_list+1] = entry_hash
+									end
+								else
+									all_entries_had_hash = false
+								end
 							end
 							if no_entries_had_hash then
 								print("Warning: JSON file '"..file_path.."' contained no entries with the expected property '"..param_name.."'")
