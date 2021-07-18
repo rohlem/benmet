@@ -427,6 +427,21 @@ util.debug_detail_level = 0
 			return table.concat(lines, "\n")
 		end
 		
+		-- helper function that checks the type of the given value,
+		-- asserting that it is a non-identity primitive,
+		-- then returns its string representation (via tostring)
+		local strict_tostring = function(x, --[[error_prefixes]]...)
+				local x_type = type(x)
+				if x_type ~= 'string' and x_type ~= 'number' and x_type ~= 'boolean' then
+					local error_message_segments = {--[[error_prefixes]]...}
+					error_message_segments[#error_message_segments+1] = "type '"
+					error_message_segments[#error_message_segments+1] = x_type
+					error_message_segments[#error_message_segments+1] = "'"
+					error(table.concat(error_message_segments))
+				end
+				return tostring(x)
+			end
+			
 		-- helper function asserting that all keys are strings and
 		-- all entries are non-identity primitives (strings, numbers or booleans);
 		-- returns a table with values converted to strings
@@ -438,12 +453,7 @@ util.debug_detail_level = 0
 						error("non-string param name from parsed JSON: type '"..k_type.."'")
 					end
 					assert(k ~= "", "invalid param name \"\" (empty string) encountered in parsed JSON")
-					local v_type = type(v)
-					if v_type ~= 'string' and v_type ~= 'number' and v_type ~= 'boolean' then
-						error("encountered unexpected type as value of parameter '"..k.."' from parsed JSON: type '"..v_type.."'")
-					end
-					v = tostring(v)
-					t[k] = v
+					t[k] = strict_tostring(v, "encountered unexpected type as value of parameter '", k, "' from parsed JSON: ")
 				end
 				return t
 			end
@@ -544,13 +554,7 @@ util.debug_detail_level = 0
 						entries[key_index] = {k, entry_values}
 						 -- iterate over all numbered entries (assuming it is an array) and move them over to entry_values
 						for i = 1, #parsed_entry do
-							local v = parsed_entry[i]
-							local v_type = type(v)
-							if v_type ~= 'string' and v_type ~= 'number' and v_type ~= 'boolean' then
-								error("encountered unexpected type '"..v_type.."' as element in array value of parameter '"..k.."' from parsed JSON")
-							end
-							v = tostring(v)
-							entry_values[i] = v
+							entry_values[i] = strict_tostring(parsed_entry[i], "encountered unexpected type as element in array value of parameter '", k, "' from parsed JSON: ")
 							parsed_entry[i] = nil
 						end
 						-- if there are any entries left, the array contained null entries, or it was an object (with string keys)
@@ -564,10 +568,7 @@ util.debug_detail_level = 0
 						-- we additionally require that the array cannot be empty
 						assert(#entry_values > 0, "error trying to parse multivalue params as JSON object: value array cannot be empty")
 					else -- non-table elements are individual values, which we wrap in a table for consistency
-						if entry_type ~= 'string' and entry_type ~= 'number' and entry_type ~= 'boolean' then
-							error("encountered unexpected type '"..entry_type.."' as element in array value of parameter '"..k.."' from parsed JSON")
-						end
-						entries[key_index] = {k, {tostring(parsed_entry)}}
+						entries[key_index] = {k, {strict_tostring(parsed_entry, "encountered unexpected type as element in array value of parameter '",k,"' from parsed JSON: ")}}
 					end
 				end
 				return entries, key_index_lookup
