@@ -623,7 +623,7 @@ util.debug_detail_level = 0
 							v[vi] = strict_tostring(v[vi], "unsupported value type at input_array[", i, "].", k, "[", vi, "]: ")
 						end
 					else
-						next_input[k] = strict_tostring(v, "encountered unexpected value type at input_array[", i, "].", k, ": ")
+						next_element[k] = strict_tostring(v, "encountered unexpected value type at input_array[", i, "].", k, ": ")
 					end
 				end
 			end
