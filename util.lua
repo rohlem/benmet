@@ -442,17 +442,21 @@ util.debug_detail_level = 0
 				return tostring(x)
 			end
 			
+		local check_json_param_key_validity = function(key)
+				local key_type = type(key)
+				if key_type ~= 'string' then
+					error("non-string param name from parsed JSON: type '"..key_type.."'")
+				end
+				assert(key ~= "", "invalid param name \"\" (empty string) encountered in parsed JSON")
+			end
+		util.check_json_param_key_validity = check_json_param_key_validity
 		-- helper function asserting that all keys are strings and
 		-- all entries are non-identity primitives (strings, numbers or booleans);
 		-- returns a table with values converted to strings
 		local ensure_strings_in_json_param_entry = function(entry)
 				local t = {}
 				for k,v in pairs(entry) do -- translate keys and values to strings, as we would expect from our line-based format
-					local k_type = type(k)
-					if k_type ~= 'string' then
-						error("non-string param name from parsed JSON: type '"..k_type.."'")
-					end
-					assert(k ~= "", "invalid param name \"\" (empty string) encountered in parsed JSON")
+					check_json_param_key_validity(k)
 					t[k] = strict_tostring(v, "encountered unexpected type as value of parameter '", k, "' from parsed JSON: ")
 				end
 				return t
@@ -541,11 +545,7 @@ util.debug_detail_level = 0
 					error("error trying to parse multivalue params from JSON object: "..tostring(parsed))
 				end
 				for k, parsed_entry in pairs(parsed) do
-					local k_type = type(k)
-					if k_type ~= 'string' then
-						error("non-string param name from parsed JSON: type '"..k_type.."'")
-					end
-					assert(k ~= "", "invalid param name \"\" (empty string) encountered in parsed JSON")
+					check_json_param_key_validity(k)
 					local key_index = #entries+1
 					key_index_lookup[k] = key_index
 					local entry_type = type(parsed_entry)
