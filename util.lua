@@ -601,6 +601,27 @@ util.debug_detail_level = 0
 			return multivalue_entries
 		end
 		
+		-- checks that all sublists are non-empty arrays and
+		-- converts values to strings
+		function util.coerce_json_multivalue_array_in_place(multivalue_array)
+			for i = 1, #multivalue_array do
+				local next_element = multivalue_array[i]
+				for k,v in pairs(next_element) do
+					check_json_param_key_validity(k)
+					if type(v) == 'table' then
+						if #v == 0 then
+							error("sublists must be non-empty arrays without null entries")
+						end
+						for vi = 1, #v do
+							v[vi] = strict_tostring(v[vi], "unsupported value type at input_array[", i, "].", k, "[", vi, "]: ")
+						end
+					else
+						next_input[k] = strict_tostring(v, "encountered unexpected value type at input_array[", i, "].", k, ": ")
+					end
+				end
+			end
+		end
+		
 		-- constructs all combinations, going in reverse order
 		local combinatorial_iterator_impl = function(state, combination)
 				local multivalue_entries = state[1]
@@ -674,15 +695,7 @@ util.debug_detail_level = 0
 					local has_list_element
 					for k,v in pairs(next_input) do
 						if type(v) == 'table' then
-							assert(#v > 0, "sublists must be non-empty arrays without null entries")
-							for i = 1, #v do
-								local entry = v[i]
-								local entry_type = type(entry)
-								v[i] = strict_tostring(entry, "unsupported value type at input_array[", next_index, "].", k, "[", i, "]: ")
-							end
 							has_list_element = true
-						else
-							next_input[k] = strict_tostring(v, "encountered unexpected value type at input_array[", next_index, "].", k, ": ")
 						end
 					end
 					-- if there was no list element, the next element is just this element verbatim
@@ -708,9 +721,8 @@ util.debug_detail_level = 0
 				end
 			end
 		-- iterates over every entry in multivalue_entries_array,
-		-- modifying elements in place to stringify non-string values,
 		-- returns elements without list values directly,
-		-- returns all combinations of elements with list values  (via util.combinatorial_iterator_one_from_each_sublist)
+		-- returns all combinations of elements with list values (via util.combinatorial_iterator_one_from_each_sublist)
 		function util.all_combinations_of_multivalues_in_list(multivalue_entries_array)
 				local state = {multivalue_entries_array, 0}
 				return all_combinations_of_multivalues_in_list_impl, state

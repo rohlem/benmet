@@ -145,10 +145,14 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 								error_message = param_array
 								-- fallthrough
 							else
-								-- return the resulting iterator, which iterates over all array entries,
-								-- combinatorically creating all multivalues,
-								-- and also converts all values to strings, as our line-based format would
-								return util.all_combinations_of_multivalues_in_list(param_array)
+								-- convert all values to strings, as our line-based format would,
+								-- and check that all combinatorial arrays are non-empty
+								successful, error_message = pcall(util.coerce_json_multivalue_array_in_place, param_array)
+								if successful then -- else fallthrough
+									-- return the resulting iterator, which iterates over all array entries,
+									-- combinatorically creating all multivalues
+									return util.all_combinations_of_multivalues_in_list(param_array)
+								end
 							end
 						else
 							-- parse it as a multivalue param file in our custom line-based format
