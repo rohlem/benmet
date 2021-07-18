@@ -555,7 +555,7 @@ local program_command_structures = {
 					if not util.directory_exists(target_step_path) then
 						print("build step '"..target_step_name.."' not found (no directory '"..target_step_path.."')")
 					else
-						local target_step_run_script_path = target_step_path.."/run.lua"
+						local target_step_run_script_path = target_step_path.."/"..features.get_relative_step_script_path(target_step_name)
 						if not util.file_exists(target_step_run_script_path) then
 							print("build step '"..target_step_name.."' not available (no run script '"..target_step_run_script_path.."')")
 						else

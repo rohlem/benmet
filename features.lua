@@ -57,6 +57,60 @@ end
 
 
 
+-- step features: index file
+local step_script_path_lookup
+local step_immediate_dependency_lookup
+-- parses the workspace's 'steps/index.txt' file into one lookup table of script path by step name
+-- and one lookup table of direct dependency lists by step name
+local get_step_script_path_and_immediate_dependency_lookups = function()
+	-- if we already read them, return them cached
+	if step_script_path_lookup then
+		return step_script_path_lookup, step_immediate_dependency_lookup
+	end
+	-- otherwise read and parse the index file
+	local index_spec = util.read_full_file(relative_path_prefix.."steps/index.txt")
+	step_script_path_lookup = {}
+	step_immediate_dependency_lookup = {}
+	for line in string.gmatch(index_spec, "[^\n]+") do -- for every non-empty line
+		local dependers, dependees = string.match(line, "^([^:]*):([^:]*)")
+		if dependers then -- if the pattern doesn't match, we ignore the line
+			local dependees_list = {}
+			for dependee in string.gmatch(dependees, "%S+") do -- dependees are space-separated, possibly empty
+				dependees_list[#dependees_list+1] = dependee
+			end
+			for depender_string in string.gmatch(dependers, "%S+") do -- dependers are space-separated, possibly empty
+				-- split depender in step name and script path
+				local depender, depender_script_path = string.match(depender_string, "^([^/]*)/(.*)")
+				if not depender then -- check it conforms to this format
+					error("invalid format of steps/index.txt: depender '"..depender.."' does not follow the format '<step-name>/<script-path>'")
+				end
+				local prev_script_path = step_script_path_lookup[depender]
+				if step_script_path_lookup[depender] then -- check for double-assignment
+					assert(prev_script_path == depender_script_path, "invalid format of steps/index.txt: step '"..depender.."' listed with different step scripts: first with '"..prev_script_path.."', then with '"..depender_script_path.."'")
+				else
+					step_script_path_lookup[depender] = depender_script_path
+				end
+				-- set or append the dependencies
+				if not step_immediate_dependency_lookup[depender] then
+					step_immediate_dependency_lookup[depender] = util.table_copy_shallow(dependees_list)
+				else
+					step_immediate_dependency_lookup[depender] = util.list_append_in_place(step_immediate_dependency_lookup[depender], dependees_list)
+				end
+			end
+		end
+	end
+	return step_script_path_lookup, step_immediate_dependency_lookup
+end
+
+-- returns the script path for the given step name, relative to its step directory
+local get_relative_step_script_path = function(step_name)
+	local step_script_path_lookup = assert(get_step_script_path_and_immediate_dependency_lookups())
+	return step_script_path_lookup[step_name]
+end
+features.get_relative_step_script_path = get_relative_step_script_path
+
+
+
 -- step features: direct/simple command execution
 -- environment overrides for the Lua scripts we execute (we need variants by working directory)
 local benmet_lua_env_override_tables_by_relative_step_dir_path = {
@@ -68,15 +122,16 @@ local benmet_lua_env_override_tables_by_relative_step_dir_path = {
 		},
 }
 -- directly invoke the given command of the given step at the given path (step run directory)
-local step_invoke_command_raw = function(at_path, command, relative_step_dir_path)
-	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.get_lua_program().." "..util.in_quotes(relative_step_dir_path.."run.lua").." "..command, benmet_lua_env_override_tables_by_relative_step_dir_path[relative_step_dir_path], at_path)
+local step_invoke_command_raw = function(step_name, at_path, command, relative_step_dir_path)
+	local step_script_path = get_relative_step_script_path(step_name)
+	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.get_lua_program().." "..util.in_quotes(relative_step_dir_path..step_script_path).." "..command, benmet_lua_env_override_tables_by_relative_step_dir_path[relative_step_dir_path], at_path)
 	return success and program_output, return_status
 end
 
 -- directly invoke command 'inputs' of the given step
 local step_query_inputs_uncached = function(step_name)
-	--assert(util.file_exists(relative_path_prefix.."steps/"..step_name.."/run.lua"), "step '"..step_name.."' is missing run.lua script, failed to query its input parameters")
-	return step_invoke_command_raw(relative_path_prefix.."steps/"..step_name, 'inputs', "./")
+	--assert(util.file_exists(relative_path_prefix.."steps/"..step_name.."/"..get_step_script_path_and_immediate_dependency_lookups()[step_name]), "step '"..step_name.."' is missing step script, failed to query its input parameters")
+	return step_invoke_command_raw(step_name, relative_path_prefix.."steps/"..step_name, 'inputs', "./")
 end
 local step_query_inputs_cache = {}
 -- query the results of invoking command 'inputs' of the given step, potentially from cache
@@ -107,7 +162,7 @@ function features.step_query_status(step_name, step_run_path)
 		return 'finished'
 	end
 	-- execute the run script which determines the run's status
-	local output = step_invoke_command_raw(step_run_path, 'status', "../../")
+	local output = step_invoke_command_raw(step_name, step_run_path, 'status', "../../")
 	assert(output, "failed to query status of step '"..step_name.."' for run path '"..step_run_path.."'")
 	return type(output) == 'string' and util.cut_trailing_space(output)
 		or output
@@ -196,33 +251,6 @@ end
 
 
 -- step features: dependencies
--- parses the workspace's 'steps/index.txt' file into a single-depender-to-many-dependees immediate-dependency lookup table
--- This does not construct the full graph, and so doesn't detect cycles.
-local build_step_immediate_dependency_lists__cache
-local build_step_immediate_dependency_lists = function()
-	if build_step_immediate_dependency_lists__cache then return build_step_immediate_dependency_lists__cache end
-	local dependency_lists = {} -- [step name] = list of other step names
-	local dependency_spec = util.read_full_file(relative_path_prefix.."steps/index.txt")
-	for line in string.gmatch(dependency_spec, "[^\n]+") do -- for every non-empty line
-		local dependers, dependees = string.match(line, "(.*):(.*)")
-		if dependers then
-			local dependees_list = {}
-			for dependee in string.gmatch(dependees, "%S+") do -- dependees are space-separated, possibly empty
-				dependees_list[#dependees_list+1] = dependee
-			end
-			for depender in string.gmatch(dependers, "%S+") do -- dependers are space-separated, possibly empty
-				if not dependency_lists[depender] then
-					dependency_lists[depender] = util.table_copy_shallow(dependees_list)
-				else
-					dependency_lists[depender] = util.list_append_in_place(dependency_lists[depender], dependees_list)
-				end
-			end
-		end
-	end
-	
-	build_step_immediate_dependency_lists__cache = dependency_lists
-	return dependency_lists
-end
 -- transitively constructs the dependency graph required for the given step
 -- errors in the case of cycles
 -- technically we could save some time by only building the target step's list instead of the full graph's transitive dependencies if we know the program never queries different targets during one execution
@@ -230,7 +258,7 @@ local step_get_necessary_steps__necessary_steps_for_cache = {}
 function features.step_get_necessary_steps(target_step_name)
 	assert(target_step_name)
 	local necessary_steps_for = step_get_necessary_steps__necessary_steps_for_cache -- the list of all transitive dependees for each depender step
-	local step_immediate_dependency_lists = build_step_immediate_dependency_lists()
+	local --[[step_script_paths]]_, step_immediate_dependency_lists = get_step_script_path_and_immediate_dependency_lookups()
 	
 	-- stack-based children-first graph traversal
 	local resolving_stack = {target_step_name} -- graph traversal stack / work-left stack
@@ -572,7 +600,7 @@ local step_invoke_command_start = function(step_name, step_path, step_run_path, 
 	rebuild_step_run_dir(step_path, step_run_path, active_params, step_run_in_params, special_params)
 	
 	-- invoke the command
-	return step_invoke_command_raw(step_run_path, 'start', "../../")
+	return step_invoke_command_raw(step_name, step_run_path, 'start', "../../")
 end
 -- invoke a step command, setting up its run directory if required
 -- does not support 'inputs', which needs no run directory (use features.step_query_inputs)
@@ -615,7 +643,7 @@ function features.step_invoke_command(step_name, command, active_params, step_ru
 	end
 	
 	-- invoke the command
-	return step_invoke_command_raw(step_run_path, command, "../../")
+	return step_invoke_command_raw(step_name, step_run_path, command, "../../")
 end
 
 
