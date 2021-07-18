@@ -43,7 +43,7 @@ local option_param_file = {description = "use the given parameter file as initia
 local option_pipeline_default_params = {is_flag = true, description = "add an instance of all-defaulted parameters, as if supplying an empty parameter file"}
 local option_pipeline_all_params = {is_flag = true, description = "select all pipelines regardless of parameters"}
 local option_pipeline_params_from_stdin = {is_flag = true, description = "read standard input as an additional parameter file"}
-local option_pipeline_target = {description = "the target step of the pipeline(s)"} --TODO(potentially?): could be made optional if we had a default target step in dependencies.txt
+local option_pipeline_target = {description = "the target step of the pipeline(s)"} --TODO(potentially?): could be made optional if we had a default target step in steps/index.txt
 local option_pipeline_all_targets = {is_flag = true, description = "select all pipelines regardless of targets"}
 local option_pipeline_all = {is_flag = true, shorthand_for = {'all-targets', 'all-params'}, description = "select all pipelines"}
 local option_pipeline_accept_param = {description = "accept an unused property in pipeline parameterizations", allow_multiple = true}
@@ -595,7 +595,7 @@ local program_command_structures = {
 	},
 	['step.list-dependencies'] = {any_args_min = 1, any_args_max = 1, any_args_name = 'step-name',
 		summary = "display the preceding steps the given step depends on",
-		description = "Analyzes the acyclic step dependency graph declared in 'steps/dependencies.txt' and outputs all steps the given step depends on.\n"..dependencies_txt_description,
+		description = "Analyzes the acyclic step dependency graph declared in 'steps/index.txt' and outputs all steps the given step depends on.\n"..dependencies_txt_description,
 		implementation = function(features, util, arguments, options)
 			local step_name = arguments[1]
 			local dependencies = features.step_get_necessary_steps_inclusive(step_name)
@@ -670,7 +670,7 @@ local program_command_structures = {
 	['pipelines.launch'] = {any_args_name = 'param-files',
 		summary = "launch new pipeline instances",
 		options = {
-			['target'] = {required = true, description = "the target step of the pipeline(s)"}, --TODO(potentially?): could be made optional if we had a default target step in dependencies.txt
+			['target'] = {required = true, description = "the target step of the pipeline(s)"}, --TODO(potentially?): could be made optional if we had a default target step in steps/index.txt
 			-- TODO (potentially?): also implement 'all-targets' option flag
 			['default-params'] = option_pipeline_default_params,
 			['params-from-stdin'] = option_pipeline_params_from_stdin,

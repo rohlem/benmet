@@ -196,13 +196,13 @@ end
 
 
 -- step features: dependencies
--- parses the workspace's 'steps/dependencies.txt' file into a single-depender-to-many-dependees immediate-dependency lookup table
+-- parses the workspace's 'steps/index.txt' file into a single-depender-to-many-dependees immediate-dependency lookup table
 -- This does not construct the full graph, and so doesn't detect cycles.
 local build_step_immediate_dependency_lists__cache
 local build_step_immediate_dependency_lists = function()
 	if build_step_immediate_dependency_lists__cache then return build_step_immediate_dependency_lists__cache end
 	local dependency_lists = {} -- [step name] = list of other step names
-	local dependency_spec = util.read_full_file(relative_path_prefix.."steps/dependencies.txt")
+	local dependency_spec = util.read_full_file(relative_path_prefix.."steps/index.txt")
 	for line in string.gmatch(dependency_spec, "[^\n]+") do -- for every non-empty line
 		local dependers, dependees = string.match(line, "(.*):(.*)")
 		if dependers then
@@ -267,7 +267,7 @@ function features.step_get_necessary_steps(target_step_name)
 			finished_resolving_for[top] = finished_resolving_for[top] or {}
 			local immediate_dependees_of_top = step_immediate_dependency_lists[top]
 			if not immediate_dependees_of_top then
-				error("missing dependency declaration of step '"..top.."': does not appear on the left-hand side of a line in 'steps/dependencies.txt'")
+				error("missing dependency declaration of step '"..top.."': does not appear on the left-hand side of a line in 'steps/index.txt'")
 			end
 			
 			local unresolved_immediate_dependee
