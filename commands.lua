@@ -145,15 +145,10 @@ local parse_param_iterator_constructors_and_warning_printers_from_pipeline_argum
 								error_message = param_array
 								-- fallthrough
 							else
-								-- convert all table values to strings, because our line-based parameter format does not differentiate them from numbers
-								for i = 1, #param_array do
-									local param = param_array[i]
-									for k,v in pairs(param) do
-										param[k] = tostring(v)
-									end
-								end
-								-- return the resulting iterator
-								return util.array_element_iterator(param_array)
+								-- return the resulting iterator, which iterates over all array entries,
+								-- combinatorically creating all multivalues,
+								-- and also converts all values to strings, as our line-based format would
+								return util.all_combinations_of_multivalues_in_list(param_array)
 							end
 						else
 							-- parse it as a multivalue param file in our custom line-based format
