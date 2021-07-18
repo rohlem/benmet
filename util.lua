@@ -789,12 +789,6 @@ util.debug_detail_level = 0
 				end
 				return table.concat(elements, ";")
 			end
-		-- For 'require' within the step scripts to find our modules, mainly 'benmet.util' and 'benmet.step_templates',
-		-- we want to execute the script with a package path pointing to the same directories,
-		-- so if they are relative paths they need to be adjusted to nesting.
-		function util.relative_prefixed_package_path(relative_prefix)
-			return util.prefix_relative_path_templates_in_string(_G.benmet_get_package_path_prefix(), relative_prefix).._G.benmet_get_original_package_path()
-		end
 		
 		local cached_lua_program
 		install_delayed_impl_selector(util, 'get_lua_program', {

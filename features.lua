@@ -113,20 +113,28 @@ features.get_relative_step_script_path = get_relative_step_script_path
 
 -- step features: direct/simple command execution
 -- environment overrides for the Lua scripts we execute (we need variants by working directory)
-local benmet_lua_env_override_tables_by_relative_step_dir_path = {
-	["./"] = {
-			LUA_PATH = util.relative_prefixed_package_path("../../"), -- "./steps/<step-name>" is exactly 2 nested
-		},
-	["../../"] = {
-			LUA_PATH = util.relative_prefixed_package_path("../../../../"), -- "./steps/<step-name>/runs/<param-hash>" is exactly 4 nested
-		},
-}
+local benmet_lua_env_override_table_by_relative_step_dir_path
+local function get_benmet_lua_env_override_table_by_relative_step_dir_path()
+	benmet_lua_env_override_table_by_relative_step_dir_path = {
+		["./"] = {
+				LUA_PATH = package.path, -- "./steps/<step-name>" is exactly 2 nested
+			},
+		["../../"] = {
+				LUA_PATH = (util.string_ends_with(package.path, ";") and package.path
+						or package.path .. ";")
+					.. util.prefix_relative_path_templates_in_string(package.path, "../../"), -- "./runs/<param-hash>" is exactly 2 nested from its step dir
+			},
+	}
+	-- replace self by simpler get-function
+	get_benmet_lua_env_override_table_by_relative_step_dir_path = function() return benmet_lua_env_override_table_by_relative_step_dir_path end
+	return benmet_lua_env_override_table_by_relative_step_dir_path
+end
 -- directly invoke the given command of the given step at the given path (step run directory)
 local step_invoke_command_raw = function(step_name, at_path, command, relative_step_dir_path)
 	local step_script_path = get_relative_step_script_path(step_name)
 	local launch_script_prefix = util.string_ends_with(step_script_path, ".lua") and util.get_lua_program().." "
 		or ""
-	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(launch_script_prefix..util.in_quotes(relative_step_dir_path..step_script_path).." "..command, benmet_lua_env_override_tables_by_relative_step_dir_path[relative_step_dir_path], at_path)
+	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(launch_script_prefix..util.in_quotes(relative_step_dir_path..step_script_path).." "..command, get_benmet_lua_env_override_table_by_relative_step_dir_path()[relative_step_dir_path], at_path)
 	return success and program_output, return_status
 end
 

@@ -9,18 +9,18 @@ local relative_path_prefix = "./"
 _G.benmet_relative_path_prefix = relative_path_prefix
 
 
+local main_script_dir_path
+local benmet_package_path_prefix, original_package_path
 do -- set up package.path for importing other benmet code via `require`
-	local original_package_path = package.path
-	_G.benmet_get_original_package_path = function() return original_package_path end -- used by benmet.util.relative_prefixed_package_path: relative paths in here are not adjusted, instead suffixed as-is
+	original_package_path = package.path
 	
 	main_script_dir_path = string.match(arg[0], "^(.-)[^/%\\]*$")
 	main_script_dir_path = #main_script_dir_path > 0 and main_script_dir_path or "./"
 	local benmet_path = main_script_dir_path.."../?.lua;"
 	local lunajson_path = main_script_dir_path.."../lunajson/src/?.lua;"
 	
-	local benmet_package_path_prefix = benmet_path..lunajson_path
+	benmet_package_path_prefix = benmet_path..lunajson_path
 	
-	_G.benmet_get_package_path_prefix = function() return benmet_package_path_prefix end -- used by benmet.util.relative_prefixed_package_path: relative paths in here are adjusted
 	package.path = benmet_package_path_prefix..package.path
 	
 	_G.benmet_get_main_script_dir_path = function() return main_script_dir_path end -- used by benmet.util in import error messages and to add the lunajson package path
@@ -284,4 +284,13 @@ local command_implementation = assert(selected_command_structure.implementation,
 
 local features = require "benmet.features"
 local util = require "benmet.util"
+
+-- ensure that the main script dir path is absolute,
+-- so that 'require' within step scripts can find our modules even though they have a different working directory
+if not util.path_is_absolute(main_script_dir_path) then
+	local cwd_prefix = util.get_current_directory() .. "/"
+	main_script_dir_path = cwd_prefix .. main_script_dir_path
+	package.path = util.prefix_relative_path_templates_in_string(benmet_package_path_prefix, cwd_prefix)..original_package_path
+end
+
 os.exit(command_implementation(features, util, parsed_args, parsed_options))
