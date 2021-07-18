@@ -9,21 +9,34 @@ local relative_path_prefix = "./"
 _G.benmet_relative_path_prefix = relative_path_prefix
 
 
-local main_script_dir_path
-local benmet_package_path_prefix, original_package_path
+local util -- forward declaration of our import of 'benmet.util'
+
 do -- set up package.path for importing other benmet code via `require`
-	original_package_path = package.path
+	local original_package_path = package.path
 	
-	main_script_dir_path = string.match(arg[0], "^(.-)[^/%\\]*$")
+	local main_script_dir_path = string.match(arg[0], "^(.-)[^/%\\]*$")
 	main_script_dir_path = #main_script_dir_path > 0 and main_script_dir_path or "./"
 	local benmet_path = main_script_dir_path.."../?.lua;"
 	local lunajson_path = main_script_dir_path.."../lunajson/src/?.lua;"
 	
-	benmet_package_path_prefix = benmet_path..lunajson_path
+	local benmet_package_path_prefix = benmet_path..lunajson_path
 	
 	package.path = benmet_package_path_prefix..package.path
 	
 	_G.benmet_get_main_script_dir_path = function() return main_script_dir_path end -- used by benmet.util in import error messages and to add the lunajson package path
+	
+	local absolute_package_path_entries_ensured
+	-- ensures that the package.path entries based on our main script dir path are absolute,
+	-- so that 'require' within step scripts can find our modules even though they have a different working directory
+	_G.benmet_ensure_package_path_entries_are_absolute = function()
+		if absolute_package_path_entries_ensured then return end
+		if not util.path_is_absolute(main_script_dir_path) then
+			local cwd_prefix = util.get_current_directory() .. "/"
+			main_script_dir_path = cwd_prefix .. main_script_dir_path
+			package.path = util.prefix_relative_path_templates_in_string(benmet_package_path_prefix, cwd_prefix)..original_package_path
+		end
+		absolute_package_path_entries_ensured = true
+	end
 end
 
 local program_invocation_string_without_args -- used in help text syntax examples
@@ -283,14 +296,6 @@ end
 local command_implementation = assert(selected_command_structure.implementation, "command has no implementatino yet (FIXME)")
 
 local features = require "benmet.features"
-local util = require "benmet.util"
-
--- ensure that the main script dir path is absolute,
--- so that 'require' within step scripts can find our modules even though they have a different working directory
-if not util.path_is_absolute(main_script_dir_path) then
-	local cwd_prefix = util.get_current_directory() .. "/"
-	main_script_dir_path = cwd_prefix .. main_script_dir_path
-	package.path = util.prefix_relative_path_templates_in_string(benmet_package_path_prefix, cwd_prefix)..original_package_path
-end
+util = require "benmet.util"
 
 os.exit(command_implementation(features, util, parsed_args, parsed_options))

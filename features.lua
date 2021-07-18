@@ -115,6 +115,7 @@ features.get_relative_step_script_path = get_relative_step_script_path
 -- environment overrides for the Lua scripts we execute (we need variants by working directory)
 local benmet_lua_env_override_table_by_relative_step_dir_path
 local function get_benmet_lua_env_override_table_by_relative_step_dir_path()
+	_G.benmet_ensure_package_path_entries_are_absolute()
 	benmet_lua_env_override_table_by_relative_step_dir_path = {
 		["./"] = {
 				LUA_PATH = package.path, -- "./steps/<step-name>" is exactly 2 nested
