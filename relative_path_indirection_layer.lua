@@ -197,6 +197,7 @@ function relative_path_indirection_layer.increase_stack(relative_path_prefix)
 	relative_path_prefix = string.sub(relative_path_prefix, -1) == "/" and relative_path_prefix
 		or relative_path_prefix.."/"
 	assert(not util.path_is_absolute(relative_path_prefix))
+	assert(util.directory_exists(relative_path_prefix))
 	
 	-- ensure our own package path entries are absolute first, because that may rely on querying the current directory
 	_G.benmet_ensure_package_path_entries_are_absolute()
