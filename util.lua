@@ -965,25 +965,21 @@ util.debug_detail_level = 0
 			end,
 		})
 		
-		install_delayed_impl_selector(util, 'remove_file', {
-			function() return util.find_program("rm") end, function(path)
-				util.logprint("deleting file: "..path)
-				incdl()
-					assert(util.execute_command("rm -f "..util.in_quotes(path)), "failed to delete file: "..path)
-				decdl()
-			end,
-			--[[DEL is not a program]] true, function(path)
-				util.logprint("deleting file: "..path)
-				incdl()
-					assert(util.execute_command("DEL /F /Q "..util.in_quotes_with_backslashes(path)), "failed to delete file: "..path)
-				decdl()
-			end,
-		})
-		
-		util.remove_file_if_exists_return_existed = function(path)
+		function util.remove_file(path)
+			path = util.in_quotes(path)
+			util.logprint("deleting file: "..path)
 			incdl()
-				local existed = pcall(util.remove_file, path)
+				assert(os.remove(path))
 			decdl()
+		end
+		
+		function util.remove_file_if_exists_return_existed(path)
+			path = util.in_quotes(path)
+			util.logprint("deleting file if it exists: "..path)
+			incdl()
+				local existed = os.remove(path)
+			decdl()
+			util.logprint(existed and "file deleted" or "could not delete file (-> reporting it didn't exist)")
 			return existed
 		end
 		
