@@ -1105,20 +1105,12 @@ util.debug_detail_level = 0
 			util.ensure_directory(path)
 		end
 		
-		install_delayed_impl_selector(util, 'move_file_in_directory', {
-			function() return util.find_program("mv") end, function(containing_dir_path, source_file_name, destination_file_name)
-				util.logprint("renaming file in directory '"..containing_dir_path.."' from '"..source_file_name.."' to '"..destination_file_name.."'")
-				incdl()
-					assert(util.execute_command_at("mv -f -T "..util.in_quotes("./"..source_file_name).." "..util.in_quotes("./"..destination_file_name), containing_dir_path))
-				decdl()
-			end,
-			--[[RENAME is not a program]]true, function(containing_dir_path, source_file_name, destination_file_name)
-				util.logprint("renaming file in directory '"..containing_dir_path.."' from '"..source_file_name.."' to '"..destination_file_name.."'")
-				incdl()
-					assert(util.execute_command_at("RENAME "..util.in_quotes(source_file_name).." "..util.in_quotes(destination_file_name), containing_dir_path))
-				decdl()
-			end,
-		})
+		function util.move_file_in_directory(containing_dir_path, source_file_name, destination_file_name)
+			util.logprint("renaming file in directory '"..containing_dir_path.."' from '"..source_file_name.."' to '"..destination_file_name.."'")
+			incdl()
+				assert(os.rename(util.in_quotes(containing_dir_path.."/"..source_file_name), util.in_quotes(containing_dir_path.."/"..destination_file_name)))
+			decdl()
+		end
 		
 		install_delayed_impl_selector(util, 'copy_file_to_become', {
 			function() return util.find_program("cp") end, function(source, destination)
