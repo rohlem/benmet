@@ -2,33 +2,34 @@
 local md5
 local json_encode, json_decode
 
-local main_script_dir_path = _G.benmet_get_main_script_dir_path and _G.benmet_get_main_script_dir_path()
-local clone_dir_hint = main_script_dir_path and "into "..main_script_dir_path.."/.."
-	or "next to 'benmet' (this file's parent directory)"
-do
-	local found, sha2 = pcall(require, "pure_lua_SHA.sha2")
-	if not found then
-		error("Could not find Lua module `pure_lua_SHA.sha2`. Please clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git "..clone_dir_hint)
+if not _G.benmet_util_skip_library_imports then
+	local main_script_dir_path = _G.benmet_get_main_script_dir_path and _G.benmet_get_main_script_dir_path()
+	local clone_dir_hint = main_script_dir_path and "into "..main_script_dir_path.."/.."
+		or "next to 'benmet' (this file's parent directory)"
+	do
+		local found, sha2 = pcall(require, "pure_lua_SHA.sha2")
+		if not found then
+			error("Could not find Lua module `pure_lua_SHA.sha2`. Please clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git "..clone_dir_hint)
+		end
+		md5 = sha2.md5
 	end
-	md5 = sha2.md5
-end
-do
-	local found, lunajson = pcall(require, "lunajson")
-	if not found then
-		error("Could not find Lua module `lunajson`. Please clone https://github.com/grafi-tt/lunajson.git "..clone_dir_hint)
+	do
+		local found, lunajson = pcall(require, "lunajson")
+		if not found then
+			error("Could not find Lua module `lunajson`. Please clone https://github.com/grafi-tt/lunajson.git "..clone_dir_hint)
+		end
+		--[=[lunajson.encode(value, [nullv]):
+			Encode value into a JSON string and return it. If nullv is specified, values equal to nullv will be encoded as null.
+			This function encodes a table t as a JSON array if a value t[1] is present or a number t[0] is present. If t[0] is present, its value is considered as the length of the array. Then the array may contain nil and those will be encoded as null. Otherwise, this function scans non nil values starting from index 1, up to the first nil it finds. When the table t is not an array, it is an object and all of its keys must be strings.
+		--]=]
+		json_encode = lunajson.encode
+		--[=[lunajson.decode(jsonstr, [pos, [nullv, [arraylen]]]):
+			Decode jsonstr. If pos is specified, it starts decoding from pos until the JSON definition ends, otherwise the entire input is parsed as JSON. null inside jsonstr will be decoded as the optional sentinel value nullv if specified, and discarded otherwise. If arraylen is true, the length of an array ary will be stored in ary[0]. This behavior is useful when empty arrays should not be confused with empty objects.
+			This function returns the decoded value if jsonstr contains valid JSON, otherwise an error will be raised. If pos is specified it also returns the position immediately after the end of decoded JSON.
+		--]=]
+		json_decode = lunajson.decode
 	end
-	--[=[lunajson.encode(value, [nullv]):
-		Encode value into a JSON string and return it. If nullv is specified, values equal to nullv will be encoded as null.
-		This function encodes a table t as a JSON array if a value t[1] is present or a number t[0] is present. If t[0] is present, its value is considered as the length of the array. Then the array may contain nil and those will be encoded as null. Otherwise, this function scans non nil values starting from index 1, up to the first nil it finds. When the table t is not an array, it is an object and all of its keys must be strings.
-	--]=]
-	json_encode = lunajson.encode
-	--[=[lunajson.decode(jsonstr, [pos, [nullv, [arraylen]]]):
-		Decode jsonstr. If pos is specified, it starts decoding from pos until the JSON definition ends, otherwise the entire input is parsed as JSON. null inside jsonstr will be decoded as the optional sentinel value nullv if specified, and discarded otherwise. If arraylen is true, the length of an array ary will be stored in ary[0]. This behavior is useful when empty arrays should not be confused with empty objects.
-		This function returns the decoded value if jsonstr contains valid JSON, otherwise an error will be raised. If pos is specified it also returns the position immediately after the end of decoded JSON.
-	--]=]
-	json_decode = lunajson.decode
 end
-
 
 local util = {
 	json_encode = json_encode,

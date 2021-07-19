@@ -295,6 +295,8 @@ end
 -- run the selected command with the parsed arguments
 local command_implementation = assert(selected_command_structure.implementation, "command has no implementatino yet (FIXME)")
 
+_G.benmet_util_skip_library_imports = selected_command_structure.benmet_util_skip_library_imports
+
 local features = require "benmet.features"
 util = require "benmet.util"
 

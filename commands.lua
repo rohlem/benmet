@@ -27,6 +27,8 @@ These commands are returned as a table in the following form 'benmet.main' expec
 				allow_multiple = <boolean or number (limit) that indicates whether this option can be supplied multiple times (only supported for normal, non-flag, non-forwarded-as-args options)>,
 			},
 		}; nil defaults to no options>,
+		
+		benmet_util_skip_library_imports = <boolean that indicates whetehr benmet.util should _not try importing external dependencies (pua_lua_SHA and lunajson); nil defaults to false>,
 	},
 }
 --]]
