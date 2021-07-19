@@ -964,19 +964,6 @@ util.debug_detail_level = 0
 		
 		util.remove_file_if_exists = util.remove_file_if_exists_return_existed
 		
-		function util.ensure_file_in_directories(path)
-			util.logprint("ensuring file in directory: "..path)
-			incdl()
-				local parent_path = ""
-				for segment in string.gmatch(path, "([^/]+)/") do
-					util.ensure_directory(parent_path..segment)
-					parent_path = parent_path..segment.."/"
-				end
-				local last_segment = util.get_last_path_segment(path)
-				util.ensure_file(parent_path..last_segment)
-			decdl()
-		end
-		
 		function util.directory_exists(path)
 			path = util.in_quotes(path)
 			return util.execute_command("cd "..path..util.discard_stderr_suffix)
