@@ -298,6 +298,10 @@ local command_implementation = assert(selected_command_structure.implementation,
 
 _G.benmet_util_skip_library_imports = selected_command_structure.benmet_util_skip_library_imports
 
+if not _G.benmet_disable_relative_path_indirection_layer then
+	require "benmet.relative_path_indirection_layer" -- load this module first, just to make sure the standard library is stubbed before someone saves a reference to the original functions
+end
+
 local features = require "benmet.features"
 util = require "benmet.util"
 
