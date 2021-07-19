@@ -935,32 +935,14 @@ util.debug_detail_level = 0
 			or "NUL" -- Windows
 		util.discard_stderr_suffix = " 2>"..util.discard_output_file
 		
-		install_delayed_impl_selector(util, 'ensure_file', {
-			function() return util.find_program("touch") end, function(path)
-				path = util.in_quotes(path)
-				util.logprint("ensuring file: "..path)
-				incdl()
-					if util.file_exists(path) then
-						util.debugprint("file "..path.." exists")
-					else
-						util.execute_command("touch "..path)
-						util.debugprint("created empty file "..path)
-					end
-				decdl()
-			end,
-			--[[REM is not a program]] true, function(path)
-				path = util.in_quotes(path)
-				util.logprint("ensuring file: "..path)
-				incdl()
-					if util.file_exists(path) then
-						util.debugprint("file "..path.." exists")
-					else
-						assert(util.execute_command("REM. >> "..path))
-						util.debugprint("created empty file "..path)
-					end
-				decdl()
-			end,
-		})
+		function util.ensure_file(path)
+			path = util.in_quotes(path)
+			util.logprint("ensuring file: "..path)
+			incdl()
+				local f = assert(io.open(path, "a+"))
+				assert(f:close())
+			decdl()
+		end
 		
 		function util.remove_file(path)
 			path = util.in_quotes(path)
