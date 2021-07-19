@@ -909,10 +909,7 @@ util.debug_detail_level = 0
 				incdl()
 					local program_success, exit_type, return_status, program_output = assert(util.execute_command("pwd"))
 				decdl()
-				program_output = util.cut_trailing_space(program_output)
-				util.debugprint("CURRENT DIR: "..program_output.."|||")
-				assert(#program_output > 0)
-				return program_output
+				return util.cut_trailing_space(program_output)
 			end,
 			--[[CD is not a program]] true, function()
 				incdl()
