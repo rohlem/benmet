@@ -619,16 +619,16 @@ local program_command_structures = {
 			initial_params['RUN-id'] = run_id_override or initial_params['RUN-id']
 			
 			-- calculate the final target run directory and parameters
-			local last_params, last_step_run_in_params, last_special_params, last_step_run_hash_params, last_step_run_path, last_cache_hit, last_hash_collision
-			for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
+			local last_params, last_step_run_in_params, last_special_params, last_step_run_hash_params, last_step_run_path, last_run_dir_exists, last_hash_collision
+			for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
 				assert(not error_trace, error_trace)
 				if step_index == step_count then
-					last_params, last_step_run_in_params, last_special_params, last_step_run_hash_params, last_step_run_path, last_cache_hit, last_hash_collision = active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision
+					last_params, last_step_run_in_params, last_special_params, last_step_run_hash_params, last_step_run_path, last_run_dir_exists, last_hash_collision = active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision
 				end
 			end
 			
 			-- try executing the given command
-			local program_output, return_status = features.step_invoke_command(target_step_name, command, last_params, last_step_run_in_params, last_special_params, last_step_run_hash_params, last_step_run_path, last_cache_hit, last_hash_collision)
+			local program_output, return_status = features.step_invoke_command(target_step_name, command, last_params, last_step_run_in_params, last_special_params, last_step_run_hash_params, last_step_run_path, last_run_dir_exists, last_hash_collision)
 			if program_output then
 				print(program_output)
 			else
@@ -686,7 +686,7 @@ local program_command_structures = {
 			-- and here we iterate over every step and its run path (which is calculated by hashing sequentially aggregated parameters) that leads us to the target step
 			-- note: in case of error, we get an error_trace, but the loop continues (with information missing from further entries)
 			local last_step_name, last_step_run_path
-			for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
+			for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
 				-- because the last step's output is applied at the next iteration, we delay tracing in case of no error
 				if last_step_name then
 					if original_active_params then -- applying last step's output (if any) worked
@@ -800,7 +800,7 @@ local program_command_structures = {
 					local status = 'finished'
 					local at_run_path = false
 					-- run through all steps and figure out the params and run path (which is based on a hash of the relevant params subset)
-					for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
+					for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
 						if error_trace then
 							print(error_trace)
 							status = 'status-iteration-failure'
@@ -809,7 +809,7 @@ local program_command_structures = {
 						if step_index < step_count then
 							status =
 								-- check if the directory exists; note that a hash collision would have resulted in error_trace above
-								not cache_hit and 'startable'
+								not run_dir_exists and 'startable'
 								-- check execution status
 								or features.step_query_status(step_name, step_run_path)
 							if status ~= 'finished' then

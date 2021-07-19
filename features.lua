@@ -385,17 +385,17 @@ end
 
 
 -- step features: run status inspection/checking
--- returns if the given run directory exists (cache_hit), and if an incompatible run is using that directory (hash_collision)
-local step_run_query_cache_status = function(step_run_path, step_run_hash_params)
+-- returns if the given run directory exists, and if an incompatible run is using that directory (hash_collision)
+local step_run_query_dir_status = function(step_run_path, step_run_hash_params)
 	-- read the parameters the existing directory declares
 	local cached_params_path = step_run_path.."/params_in.txt"
 	local exists, cached_params = pcall(util.read_param_file_new_compat_deserialize, cached_params_path, "input parameters (params_in.txt) of step run directory '"..step_run_path.."' do not exist, cannot check for hash collision")
 	if not exists then return false, false end
 	
 	-- if we expected different parameters, it's a hash collision and not an actual cache hit
-	local cache_hit = util.tables_shallow_equal(step_run_hash_params, util.tables_intersect(cached_params, step_run_hash_params))
-	local hash_collision = not cache_hit
-	return cache_hit, hash_collision
+	local run_dir_exists = util.tables_shallow_equal(step_run_hash_params, util.tables_intersect(cached_params, step_run_hash_params))
+	local hash_collision = not run_dir_exists
+	return run_dir_exists, hash_collision
 end
 
 
@@ -509,9 +509,9 @@ local new_step_dependency_run_path_iterator_next = function(state, prev_step_ind
 		end
 	end
 	
-	local cache_hit, hash_collision
+	local run_dir_exists, hash_collision
 	if active_params_for_step then
-		cache_hit, hash_collision = step_run_query_cache_status(step_run_path, step_run_hash_params)
+		run_dir_exists, hash_collision = step_run_query_dir_status(step_run_path, step_run_hash_params)
 		if hash_collision then
 			error_trace = "hash collision detected, run directory '"..step_run_path.."' is not valid for the requested parameters"
 			state.last_active_params = nil
@@ -519,7 +519,7 @@ local new_step_dependency_run_path_iterator_next = function(state, prev_step_ind
 		end
 	end
 	
-	return step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision
+	return step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision
 end
 -- as the name says, returns arguments unchanged, used as a fallback error handler argument for xpcall
 local noop_passthrough = function(...) return ... end
@@ -585,8 +585,8 @@ local rebuild_step_run_dir = function(step_path, step_run_path, active_params, s
 	util.write_full_file(step_run_path.."/params_in.txt", params_in_string) -- write params_in file
 end
 -- invokes the 'start' command of a step run directory at the given path for the given parameters is available
-local step_invoke_command_start = function(step_name, step_path, step_run_path, cache_hit, hash_collision, active_params, step_run_in_params, special_params)
-	if cache_hit then -- the run directory we want already exists for our parameters
+local step_invoke_command_start = function(step_name, step_path, step_run_path, run_dir_exists, hash_collision, active_params, step_run_in_params, special_params)
+	if run_dir_exists then -- the run directory we want already exists for our parameters
 		local step_status = features.step_query_status(step_name, step_run_path)
 		if step_status == 'finished' then
 			print("found cache hit with status 'finished', eliding execution")
@@ -628,7 +628,7 @@ local step_invoke_command__supported_commands = {
 		status = true,
 		continue = true
 	}
-function features.step_invoke_command(step_name, command, active_params, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision)
+function features.step_invoke_command(step_name, command, active_params, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision)
 	-- argument checking
 	assert(step_name)
 	local step_path = relative_path_prefix.."steps/"..step_name
@@ -647,11 +647,11 @@ function features.step_invoke_command(step_name, command, active_params, step_ru
 	if command_can_create_run_dir then
 		assert(command == 'start', "unimplemented command that can create a run dir: '"..command.."'")
 		-- handles creating the directory and invoking the command
-		return step_invoke_command_start(step_name, step_path, step_run_path, cache_hit, hash_collision, active_params, step_run_in_params, special_params)
+		return step_invoke_command_start(step_name, step_path, step_run_path, run_dir_exists, hash_collision, active_params, step_run_in_params, special_params)
 	end
 
 	-- the remaining commands need the run directory to be created already
-	assert(cache_hit, "run directory for step '"..step_name.."' with given parameters does not exist")
+	assert(run_dir_exists, "run directory for step '"..step_name.."' with given parameters does not exist")
 	if command == 'continue' then -- no-op if the step is already finished
 		local step_status = features.step_query_status(step_name, step_run_path)
 		if step_status == 'finished' then
@@ -718,7 +718,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 	
 	-- execute steps one by one, abort on error or async step
 	local delayed_error_msg -- instead of calling error, we first want to create a pipeline file in case of failure
-	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
+	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
 		-- check for iteration-internal errors
 		if error_trace then
 			delayed_error_msg = error_trace
@@ -726,7 +726,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 		end
 		
 		-- check what status the build step is in
-		local status = not cache_hit and 'startable' -- not actually, but equivalent handling
+		local status = not run_dir_exists and 'startable' -- not actually, but equivalent handling
 			or features.step_query_status(step_name, step_run_path)
 		
 		-- check the status to decide if and how to execute the step run
@@ -744,7 +744,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 			end
 			
 			-- try executing the build step
-			local output, return_status = features.step_invoke_command(step_name, command, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision)
+			local output, return_status = features.step_invoke_command(step_name, command, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision)
 			if not output then
 				delayed_error_msg = "failed to execute step '"..step_name.."' in pipeline"
 				break
@@ -794,11 +794,11 @@ end
 function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, discard_last_step_and_pipeline)
 	local return_status
 	local all_steps_finished
-	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
+	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
 		-- check for iteration-internal error
 		assert(not error_trace, error_trace)
 		
-		if not cache_hit then -- this step doesn't exist yet, so nothing to cancel
+		if not run_dir_exists then -- this step doesn't exist yet, so nothing to cancel
 			break
 		end
 		
@@ -811,7 +811,7 @@ function features.cancel_pipeline_instance(target_step_name, initial_params, sel
 				local selected = select_pending and was_pending
 					or select_errors and was_error
 				if selected then
-					features.step_invoke_command(step_name, 'cancel', active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, cache_hit, hash_collision)
+					features.step_invoke_command(step_name, 'cancel', active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision)
 					status = features.step_query_status(step_name, step_run_path)
 					if status ~= 'startable' then
 						print("build step '"..step_name.."' unexpectedly returned status '"..status.."' after cancellation"..(discard_last_step_and_pipeline and ", not deleting run directory in pipeline discard" or ""))
