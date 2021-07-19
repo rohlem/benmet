@@ -526,6 +526,45 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 
 -- definition of all command structures and their implementation code
 local program_command_structures = {
+	['auto-setup'] = {any_args_max = 0,
+		benmet_util_skip_library_imports = true,
+		summary = "clone benmet's own dependencies",
+		options = {
+			['reliable-commits'] = {is_flag = true, description = "check out tested commit hashes instead of the upstream HEAD"}
+		},
+		description = "This command clones the repositories used by benmet into sibling directories, unless the modules can already be found in the current package.path .\n- https://github.com/Egor-Skriptunoff/pure_lua_SHA.git provides an implementation for md5 hashing.\n- https://github.com/grafi-tt/lunajson.git provides JSON decoding and encoding.",
+		implementation = function(features, util, arguments, options)
+			local specify_commit_hash = options['reliable-commits']
+			local parent_dir = _G.benmet_get_main_script_dir_path() .. "/.."
+			
+			local ensure_repo_available = function(module_name, repo_url, repo_name, commit_hash)
+					if pcall(require, module_name) then -- module found, early exit
+						return
+					end
+					local command_string = "git clone "..util.in_quotes(repo_url)
+					command_string = not commit_hash and command_string
+						or command_string .. " --no-checkout"
+					assert(util.execute_command_at(command_string, parent_dir))
+					if commit_hash then
+						-- FIXME: On Windows, combining both into a single shell command (with `&& cd ... &&`) always results in 'path not found' (as if the directory didn't exist yet).
+						-- However, this works fine on Linux in features.lua:543: rebuild_step_run_dir .
+						-- Windows may exhibit the same issue over there as well.
+						assert(util.execute_command_at("git checkout "..util.in_quotes(commit_hash).." --detach", parent_dir.."/"..repo_name))
+					end
+					return repo_name
+				end
+			
+			local cloned_list = {}
+			cloned_list[#cloned_list+1] = ensure_repo_available('pure_lua_SHA.sha2', "https://github.com/Egor-Skriptunoff/pure_lua_SHA.git", "pure_lua_SHA", specify_commit_hash and "304d4121f080e68ef209d3f5fe093e5a955a4978")
+			cloned_list[#cloned_list+1] = ensure_repo_available('lunajson', "https://github.com/grafi-tt/lunajson.git", "lunajson", specify_commit_hash and "1dcf3fadd001a7d75673a4354fcbf16ce72c5cdb")
+			if #cloned_list == 0 then
+				print("all modules found, nothing to clone")
+			else
+				print("successfully cloned modules: "..table.concat(cloned_list, ", "))
+			end
+			--assert(util.execute_command_at("git clone "..util.in_quotes(repo_path).." --no-checkout && cd "..util.in_quotes(repo_name).." && git checkout "..util.in_quotes(commit_hash).." --detach", step_run_repos))
+		end,
+	},
 	['add-repo'] = {any_args_min = 1, any_args_max = 1, any_args_name = 'git-url',
 		summary = "clone a repository",
 		options = {

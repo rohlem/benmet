@@ -565,6 +565,9 @@ local rebuild_step_run_dir = function(step_path, step_run_path, active_params, s
 			local run_repo_path = step_run_repos.."/"..repo_name.."/"
 			-- clone && checkout
 			local commit_hash = active_params['REPO-GITCOMMITHASH-'..repo_name] -- already translated at this point
+			-- FIXME: Windows didn't like this combined command over in commands.lua:536: ['auto-setup'].implementation .
+			-- The same 'path not found' issue might happen here, in which case they need to be separated into 2 commands
+			-- (and maybe we want some other facility for this, that preserves/combines commands on Linux, where this seems to work well)
 			assert(util.execute_command_at("git clone "..util.in_quotes(repo_path).." --no-checkout && cd "..util.in_quotes(repo_name).." && git checkout "..util.in_quotes(commit_hash).." --detach", step_run_repos)) -- note: prefixing with `file://` is actually a pessimization, because then git doesn't default to its more efficient `--local` transfer protocol
 		end
 	end

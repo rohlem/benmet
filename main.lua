@@ -64,6 +64,7 @@ local help_list_commands = function()
 		.."\n\n(no program description available (FIXME))"
 		.."\n\navailable commands:")
 	local ordered_command_list = { -- ordered semantically, to be manually kept in sync with the actual command specification in 'benmet.commands'
+		'auto-setup',
 		'add-repo',
 		'step.do',
 		'step.list-dependencies',
