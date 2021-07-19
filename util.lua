@@ -789,6 +789,16 @@ util.debug_detail_level = 0
 				end
 				return table.concat(elements, ";")
 			end
+		-- return only the relative paths from the given path template string, prefixed by the given prefix
+		function util.prefixed_only_relative_path_templates_in_string(path_template_string, relative_path_prefix)
+				local elements, relative_element_indices = split_path_template_string_and_collect_relative_path_element_indices(path_template_string)
+				local relative_elements = {}
+				for i = 1, #relative_element_indices do
+					local element_index = relative_element_indices[i]
+					relative_elements[#relative_elements+1] = relative_path_prefix..elements[element_index]
+				end
+				return table.concat(relative_elements, ";")
+			end
 		
 		local cached_lua_program
 		install_delayed_impl_selector(util, 'get_lua_program', {

@@ -123,7 +123,7 @@ local function get_benmet_lua_env_override_table_by_relative_step_dir_path()
 		["../../"] = {
 				LUA_PATH = (util.string_ends_with(package.path, ";") and package.path
 						or package.path .. ";")
-					.. util.prefix_relative_path_templates_in_string(package.path, "../../"), -- "./runs/<param-hash>" is exactly 2 nested from its step dir
+					.. util.prefixed_only_relative_path_templates_in_string(package.path, "../../"), -- "./runs/<param-hash>" is exactly 2 nested from its step dir
 			},
 	}
 	-- replace self by simpler get-function
