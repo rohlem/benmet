@@ -402,9 +402,11 @@ end
 
 -- step features: parameter propagation through dependencies and hashing to derive run directory names
 -- helper function that sets a run id based off the current time if none exists yet
+local run_id_counter = 0
 local ensure_run_id_in_place = function(params)
 	if not params['RUN-id'] then
-		params['RUN-id'] = os.date('%Y-%m-%d-%H-%M-%S-')..os.clock()
+		params['RUN-id'] = os.date('%Y-%m-%d-%H-%M-%S-')..os.clock().."-"..run_id_counter
+		run_id_counter = run_id_counter + 1
 		print("!! assigned run id: "..params['RUN-id'])
 	end
 end
