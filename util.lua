@@ -107,6 +107,16 @@ util.debug_detail_level = 0
 		function util.in_quotes_with_backslashes(s)
 			return string.gsub(util.in_quotes(s), "/", "\\")
 		end
+		function util.remove_quotes(s)
+			if #s > 1 then
+				local first_char = string.sub(s, 1, 1)
+				local last_char = string.sub(s, -1)
+				if first_char == last_char and (first_char == "\"" or first_char == "'") then
+					return string.sub(s, 2, -2), true
+				end
+			end
+			return s
+		end
 		
 		function util.line_contents_from_string(s)
 			local lines = {}
