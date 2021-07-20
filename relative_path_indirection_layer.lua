@@ -63,7 +63,7 @@ end
 	-- error if any other entries are present
 	local handle_all_entries = function(t, entry_handler_lookup, entries_to_ignore_list)
 			local entries_to_ignore_lookup = {}
-			for i = 1, #entries_to_ignore_list do
+			for i = 1, entries_to_ignore_list and #entries_to_ignore_list or 0 do
 				entries_to_ignore_lookup[entries_to_ignore_list[i]] = true
 			end
 			for k,v in pairs(t) do
@@ -101,10 +101,11 @@ end
 	handle_all_entries(package_loaded, {
 			_G = function(t, k, v) assert(v == _G) end,
 			io = function(t, k, v) assert(v == io) end,
+			os = function(t, k, v) assert(v == os) end,
 			package = function(t, k, v) assert(v == package) end,
 		},
 		-- ignore list: entries corresponding to modules that do not interact with the current working directory
-		{'bit32', 'coroutine', 'string', 'table', 'utf8'}
+		{'benmet.commands', 'bit32', 'coroutine', 'debug', 'math', 'string', 'table', 'utf8'}
 	)
 	
 	local package_path = package and package.path
@@ -128,7 +129,7 @@ end
 			popen = install_proxy_function, -- args: prog [, mode] -- prog is a shell command
 		},
 		-- ignore list: entries that do not (themselves) interact with the current working directory
-		{'close', 'flush', 'read', 'tmpfile', 'type', 'write'}
+		{'close', 'flush', 'read', 'stderr', 'stdin', 'stdout', 'tmpfile', 'type', 'write'}
 	)
 	
 	handle_all_entries(os, {
@@ -163,10 +164,12 @@ end
 			'package',
 			-- global variables set by benmet
 			'benmet_disable_relative_path_indirection_layer', 'benmet_ensure_package_path_entries_are_absolute', 'benmet_launch_steps_as_child_processes', 'benmet_relative_path_prefix',
+			-- global variables, ordered lexicographically
+			'_VERSION', 'arg',
 			-- functions, ordered lexicographically
-			'_VERSION', 'assert', 'collectgarbage', 'error', 'getfenv', 'getmetatable', 'gcinfo', 'ipairs', 'load', 'loadstring', 'module', 'next', 'pairs', 'pcall', 'print', 'rawequal', 'rawget', 'rawlen', 'rawset', 'require', 'select', 'setfenv', 'setmetatable', 'tonumber', 'tostring', 'type', 'unpack', 'warn', 'xpcall',
+			'assert', 'collectgarbage', 'error', 'getfenv', 'getmetatable', 'gcinfo', 'ipairs', 'load', 'loadstring', 'module', 'next', 'pairs', 'pcall', 'print', 'rawequal', 'rawget', 'rawlen', 'rawset', 'require', 'select', 'setfenv', 'setmetatable', 'tonumber', 'tostring', 'type', 'unpack', 'warn', 'xpcall',
 			-- modules, ordered lexicographically
-			'bit32', 'coroutine', 'string', 'table', 'utf8',
+			'bit32', 'coroutine', 'debug', 'math', 'string', 'table', 'utf8',
 		}
 	)
 
@@ -201,6 +204,7 @@ function relative_path_indirection_layer.increase_stack(relative_path_prefix)
 	
 	-- ensure our own package path entries are absolute first, because that may rely on querying the current directory
 	_G.benmet_ensure_package_path_entries_are_absolute()
+	package_path = (package.path or LUA_PATH)
 	
 	-- calculate depth of the new prefix
 	local depth = 0
@@ -321,7 +325,7 @@ if package then
 				end
 			end),
 		searchpath = provide_replacement(function(original_searchpath)
-				return function(name, path --[[ [, sep [, rep] ] ]]...)
+				return function(name, path, --[[ [, sep [, rep] ] ]]...)
 					local prefixed_relative_elements_path = util.prefix_relative_path_templates_in_string(path, relative_path_indirection_prefix)
 					return original_searchpath(name, prefixed_relative_elements_path, ...)
 				end
