@@ -1,10 +1,10 @@
-local relative_path_indirection_layer = {}
+local indirection_layer = {}
 
-if _G.benmet_disable_relative_path_indirection_layer then
+if _G.benmet_disable_indirection_layer then
 	-- only provide this function (trivially) so caching can still rely on it
-	function relative_path_indirection_layer.path_to_cache_key(path) return path end
+	function indirection_layer.path_to_cache_key(path) return path end
 	
-	return relative_path_indirection_layer
+	return indirection_layer
 end
 
 
@@ -15,12 +15,12 @@ do -- simple implementation using the luafilesystem extension library (untested)
 		local path_stack = {}
 		local unique_keys = {}
 		
-		function relative_path_indirection_layer.path_to_cache_key(path)
+		function indirection_layer.path_to_cache_key(path)
 			local cwd = assert(lfs.currentdir())
 			return (string.sub(cwd, -1) == "/" and cwd or cwd .. "/") .. (string.match(path, "^%./+(.*)") or path)
 		end
 		
-		function relative_path_indirection_layer.increase_stack(relative_path)
+		function indirection_layer.increase_stack(relative_path)
 			path_stack[#path_stack+1] = assert(lfs.currentdir())
 			assert(lfs.chdir(relative_path))
 			
@@ -29,7 +29,7 @@ do -- simple implementation using the luafilesystem extension library (untested)
 			return unique_key
 		end
 		
-		function relative_path_indirection_layer.decrease_stack(unique_key)
+		function indirection_layer.decrease_stack(unique_key)
 			assert(unique_key == unique_keys[#unique_keys])
 			unique_keys[#unique_keys] = nil
 			
@@ -38,7 +38,7 @@ do -- simple implementation using the luafilesystem extension library (untested)
 			assert(lfs.chdir(top))
 		end
 		
-		return relative_path_indirection_layer
+		return indirection_layer
 	end
 	
 end
@@ -163,7 +163,7 @@ end
 			'os',
 			'package',
 			-- global variables set by benmet
-			'benmet_disable_relative_path_indirection_layer', 'benmet_ensure_package_path_entries_are_absolute', 'benmet_launch_steps_as_child_processes', 'benmet_relative_path_prefix',
+			'benmet_disable_indirection_layer', 'benmet_ensure_package_path_entries_are_absolute', 'benmet_launch_steps_as_child_processes', 'benmet_relative_path_prefix',
 			-- global variables, ordered lexicographically
 			'_VERSION', 'arg',
 			-- functions, ordered lexicographically
@@ -185,7 +185,7 @@ local relative_path_indirection_prefix = ""
 local relative_path_inverse_indirection_prefix = ""
 
 -- takes a path, returns a string that can safely cache this path across the relative path indirection layer
-function relative_path_indirection_layer.path_to_cache_key(path) -- lazy implementation, won't give false collisions, but could be improved to normalize paths
+function indirection_layer.path_to_cache_key(path) -- lazy implementation, won't give false collisions, but could be improved to normalize paths
 	return util.path_is_absolute(path) and path
 		or relative_path_indirection_prefix..(string.match(path, "^%.[/\\]+(.*)") or path)
 end
@@ -195,8 +195,9 @@ local relative_path_indirection_stack = {}
 local relative_path_indirection_stack_size = 0
 
 -- increases the relative path indirection stack, returns a unique key required for decreasing the stack again (to guard against misuse)
-function relative_path_indirection_layer.increase_stack(relative_path_prefix)
+function indirection_layer.increase_stack(relative_path_prefix)
 	-- normalize prefix
+	relative_path_prefix = util.remove_quotes(relative_path_prefix)
 	relative_path_prefix = string.sub(relative_path_prefix, -1) == "/" and relative_path_prefix
 		or relative_path_prefix.."/"
 	assert(not util.path_is_absolute(relative_path_prefix))
@@ -249,8 +250,8 @@ function relative_path_indirection_layer.increase_stack(relative_path_prefix)
 	return unique_key
 end
 
--- decreases the relative path indirection stack, requires the unique key returned from the matching call to relative_path_indirection_layer.increase_stack
-function relative_path_indirection_layer.decrease_stack(unique_key)
+-- decreases the relative path indirection stack, requires the unique key returned from the matching call to indirection_layer.increase_stack
+function indirection_layer.decrease_stack(unique_key)
 	-- restore previous state from the stack
 	local n = relative_path_indirection_stack_size
 	assert(unique_key == relative_path_indirection_stack[n])
@@ -280,7 +281,7 @@ end
 
 
 -- set our table as our exported require-entry
-package_loaded['benmet.relative_path_indirection_layer'] = relative_path_indirection_layer
+package_loaded['benmet.indirection_layer'] = indirection_layer
 
 -- now we can require 'benmet.util'
 util = require 'benmet.util'
@@ -290,12 +291,20 @@ util = require 'benmet.util'
 -- implement the desired behaviour of our proxy functions
 
 local prefix_indirection_if_relative = function(path)
-		return util.path_is_absolute(path) and path
+		local had_quotes
+		path, had_quotes = util.remove_quotes(path)
+		path = util.path_is_absolute(path) and path
 			or relative_path_indirection_prefix .. path
+		return had_quotes and util.in_quotes(path)
+			or path
 	end
 local prefix_inverse_indirection_if_relative = function(path)
-		return util.path_is_absolute(path) and path
+		local had_quotes
+		path, had_quotes = util.remove_quotes(path)
+		path = util.path_is_absolute(path) and path
 			or relative_path_inverse_indirection_prefix .. path
+		return had_quotes and util.in_quotes(path)
+			or path
 	end
 
 local wrap_shell_command = function(command)
@@ -444,4 +453,4 @@ handle_all_entries(original_functions_by_table[env_table], {
 
 
 
-return relative_path_indirection_layer
+return indirection_layer
