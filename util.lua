@@ -954,7 +954,7 @@ util.debug_detail_level = 0
 		end
 		
 		function util.remove_file(path)
-			util.logprint("deleting file: "'""..path.."'")
+			util.logprint("deleting file: '"..path.."'")
 			incdl()
 				assert(os.remove(path))
 			decdl()
