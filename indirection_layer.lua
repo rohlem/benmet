@@ -170,6 +170,8 @@ local pairs = pairs -- table_restore_from_backup can temporarily clear the globa
 			
 			print = install_proxy_function, -- args: values...
 			
+			require = install_proxy_function, -- args: module name
+			
 			benmet_get_lua_program_command = install_proxy_function, -- no args, returns shell command
 			benmet_get_main_script_dir_path = install_proxy_function, -- no args, returns directory path
 		},
@@ -184,7 +186,7 @@ local pairs = pairs -- table_restore_from_backup can temporarily clear the globa
 			-- global variables, ordered lexicographically
 			'_VERSION', 'arg',
 			-- functions, ordered lexicographically
-			'assert', 'collectgarbage', 'error', 'getfenv', 'getmetatable', 'gcinfo', 'ipairs', 'load', 'loadstring', 'module', 'next', 'pairs', 'pcall', 'rawequal', 'rawget', 'rawlen', 'rawset', 'require', 'select', 'setfenv', 'setmetatable', 'tonumber', 'tostring', 'type', 'unpack', 'warn', 'xpcall',
+			'assert', 'collectgarbage', 'error', 'getfenv', 'getmetatable', 'gcinfo', 'ipairs', 'load', 'loadstring', 'module', 'next', 'pairs', 'pcall', 'rawequal', 'rawget', 'rawlen', 'rawset', 'select', 'setfenv', 'setmetatable', 'tonumber', 'tostring', 'type', 'unpack', 'warn', 'xpcall',
 			-- modules, ordered lexicographically
 			'bit32', 'coroutine', 'debug', 'math', 'string', 'table', 'utf8',
 		}
@@ -557,6 +559,42 @@ handle_all_entries(original_functions_by_table[env_table], {
 				end
 				n = n + 1
 				io_in_memory_stdout_buffer[n] = "\n"
+			end
+		end),
+	
+	require = provide_replacement(function(original_require)
+			-- cache to skip subsequent require calls
+			local newly_loaded_modules = {}
+			local newly_loaded_module_backups = {}
+			local known_state_safe_modules_lookup = {
+				['benmet.commands'] = true,
+				['benmet.indirection_layer'] = true,
+				['benmet.step_templates'] = true,
+				['benmet.util'] = true,
+				['lunajson'] = true,
+				['pure_lua_SHA.sha2'] = true,
+			}
+			return function(module_name)
+				local package_loaded = (package.loaded or _LOADED)
+				local cached_module = package_loaded[module_name]
+				if cached_module then
+					return cached_module
+				end
+				
+				cached_module = newly_loaded_module_backups[module_name]
+				if cached_module then
+					local cached_backup = newly_loaded_module_backups[cached_module]
+					table_restore_from_backup(cached_backup)
+					package_loaded[module_name] = cached_module
+					return cached_module
+				end
+				
+				local module = original_require(module_name)
+				if known_state_safe_modules_lookup[module_name] then
+					newly_loaded_modules[module_name] = module
+					newly_loaded_module_backups[module] = table_backup(module)
+				end
+				return module
 			end
 		end),
 	
