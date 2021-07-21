@@ -9,14 +9,14 @@ if not _G.benmet_util_skip_library_imports then
 	do
 		local found, sha2 = pcall(require, "pure_lua_SHA.sha2")
 		if not found then
-			error("Could not find Lua module `pure_lua_SHA.sha2`. Please clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git "..clone_dir_hint)
+			error("Could not find Lua module `pure_lua_SHA.sha2`. Please run the command 'auto-setup', or manually clone https://github.com/Egor-Skriptunoff/pure_lua_SHA.git "..clone_dir_hint)
 		end
 		md5 = sha2.md5
 	end
 	do
 		local found, lunajson = pcall(require, "lunajson")
 		if not found then
-			error("Could not find Lua module `lunajson`. Please clone https://github.com/grafi-tt/lunajson.git "..clone_dir_hint)
+			error("Could not find Lua module `lunajson`. Please run the command 'auto-setup', or manually clone https://github.com/grafi-tt/lunajson.git "..clone_dir_hint)
 		end
 		--[=[lunajson.encode(value, [nullv]):
 			Encode value into a JSON string and return it. If nullv is specified, values equal to nullv will be encoded as null.
