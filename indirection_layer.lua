@@ -1,3 +1,9 @@
+--[[
+This file holds logic to isolate the program state in a layer of indirection.
+Using this, Lua code can be instrumented to execute under a (simulated) different working directory, redirect stdout writes to a memory buffer and restore the io package and global environment table to a previous state.
+This enables us to load step scripts (if they are Lua code) and run them in the same Lua VM instance, instead of launching a new subprocess.
+--]]
+
 local indirection_layer = {}
 
 if _G.benmet_disable_indirection_layer then
@@ -8,7 +14,8 @@ if _G.benmet_disable_indirection_layer then
 end
 
 
-do -- simple implementation using the luafilesystem extension library (untested)
+do -- simple implementation of the relative path indirection using the luafilesystem extension library (untested)
+--[[ this implementation is missing the stdout redirection and global table reset logic (previously not part of this file)
 	
 	local lfs_exists, lfs = pcall(require, 'lfs')
 	if lfs_exists then
@@ -41,10 +48,13 @@ do -- simple implementation using the luafilesystem extension library (untested)
 		return indirection_layer
 	end
 	
+--]]
 end
 
 
--- complex implementation using only the standard library
+local pairs = pairs -- table_restore_from_backup can temporarily clear the global table, but still wants to use pairs
+
+-- complex implementation of indirection using only the standard library
 -- First we replace the references to standard library functions with our own proxy functions.
 	
 	-- helper functions simplifying this process
@@ -104,32 +114,37 @@ end
 			os = function(t, k, v) assert(v == os) end,
 			package = function(t, k, v) assert(v == package) end,
 		},
-		-- ignore list: entries corresponding to modules that do not interact with the current working directory
+		-- ignore list: entries corresponding to modules that do not interact with the current working directory, stdout and io package state
 		{'benmet.commands', 'bit32', 'coroutine', 'debug', 'math', 'string', 'table', 'utf8'}
 	)
 	
-	local package_path = package and package.path
+	local original_package_path = package and package.path
 	if package then
 		handle_all_entries(package, {
 				loaded = function(t, k, v) assert(v == package_loaded) end,
 				loadlib = install_proxy_function, -- args: libname, funcname
-				path = function(t, k, v) assert(v == package_path) end,
+				path = function(t, k, v) assert(v == original_package_path) end,
 				searchpath = install_proxy_function, -- args: name, path [, sep [, rep] ]
 			},
-			-- ignore list: entries that do not (themselves) interact with the current working directory
+			-- ignore list: entries that do not (themselves) interact with the current working directory, stdout and io package state
 			{'config', 'cpath', 'loaders', 'preload', 'searchers', 'seeall'}
 		)
 	end
 	
 	handle_all_entries(io, {
+			close = install_proxy_function, -- args: [file] -- default output file if file is nil
+			flush = install_proxy_function, -- no args -- flushes the default output file
 			input = install_proxy_function, -- args: [file] -- if file is a string, it is a file path
 			lines = install_proxy_function, -- args: [filename]
 			open = install_proxy_function, -- args: filename [, mode]
 			output = install_proxy_function, -- args: [file] -- if file is a string, it is a file path
 			popen = install_proxy_function, -- args: prog [, mode] -- prog is a shell command
+			read = install_proxy_function, -- args: formats... -- reads from the default input file
+			type = install_proxy_function, -- takes an object, returns 'file' if it is a file handle, 'closed file' if it is a closed file handle; needs to be stubbed for our stub stdout
+			write = install_proxy_function, -- args: values... -- writes to the default output file
 		},
-		-- ignore list: entries that do not (themselves) interact with the current working directory
-		{'close', 'flush', 'read', 'stderr', 'stdin', 'stdout', 'tmpfile', 'type', 'write'}
+		-- ignore list: entries that do not (themselves) interact with the current working directory, stdout and io package state
+		{'stderr', 'stdin', 'stdout', 'tmpfile'}
 	)
 	
 	handle_all_entries(os, {
@@ -138,7 +153,7 @@ end
 			rename = install_proxy_function, -- args: oldname, newname
 			tmpname = install_proxy_function, -- no args, returns file name
 		},
-		-- ignore list: entries that do not interact with the current working directory
+		-- ignore list: entries that do not interact with the current working directory, stdout and io package state
 		{'clock', 'date', 'difftime', 'exit', 'getenv', 'setlocale', 'time'}
 	)
 	
@@ -147,16 +162,18 @@ end
 	handle_all_entries(env_table, {
 			_G = function(env_table, index, _G) assert(_G == env_table) end,
 			_LOADED = function(t, k, v) assert(v == package_loaded) end,
-			LUA_PATH = function(t, k, v) assert(v == package_path) end,
+			LUA_PATH = function(t, k, v) assert(v == original_package_path) end,
 			
 			dofile = install_proxy_function, -- args: [filename]
 			loadfile = install_proxy_function, -- args: [filename, [mode, [env] ] ]
 			loadlib = install_proxy_function, -- args: libname, funcname
 			
+			print = install_proxy_function, -- args: values...
+			
 			benmet_get_lua_program_command = install_proxy_function, -- no args, returns shell command
 			benmet_get_main_script_dir_path = install_proxy_function, -- no args, returns directory path
 		},
-		-- ignore list: these do not interact with the current working directory (except for 'require', which is handled by modifying package.path)
+		-- ignore list: these do not interact with the current working directory, stdout and io package state
 		{
 			-- modules handled above
 			'io',
@@ -167,11 +184,23 @@ end
 			-- global variables, ordered lexicographically
 			'_VERSION', 'arg',
 			-- functions, ordered lexicographically
-			'assert', 'collectgarbage', 'error', 'getfenv', 'getmetatable', 'gcinfo', 'ipairs', 'load', 'loadstring', 'module', 'next', 'pairs', 'pcall', 'print', 'rawequal', 'rawget', 'rawlen', 'rawset', 'require', 'select', 'setfenv', 'setmetatable', 'tonumber', 'tostring', 'type', 'unpack', 'warn', 'xpcall',
+			'assert', 'collectgarbage', 'error', 'getfenv', 'getmetatable', 'gcinfo', 'ipairs', 'load', 'loadstring', 'module', 'next', 'pairs', 'pcall', 'rawequal', 'rawget', 'rawlen', 'rawset', 'require', 'select', 'setfenv', 'setmetatable', 'tonumber', 'tostring', 'type', 'unpack', 'warn', 'xpcall',
 			-- modules, ordered lexicographically
 			'bit32', 'coroutine', 'debug', 'math', 'string', 'table', 'utf8',
 		}
 	)
+
+-- global state of our indirect io package
+local io_standard_input_file = io.input()
+local io_standard_output_file = io.output()
+local io_indirection_count = 0
+
+ -- forward declarations
+local io_in_memory_stdout_file
+local io_in_memory_stdout_buffer
+
+local table_backup
+local table_restore_from_backup
 
 
 -- forward declaration for our 'benmet.util' import (which we assign later)
@@ -190,22 +219,23 @@ function indirection_layer.path_to_cache_key(path) -- lazy implementation, won't
 		or relative_path_indirection_prefix..(string.match(path, "^%.[/\\]+(.*)") or path)
 end
 
--- every entry consists of a table {accumulated relative path prefix, accumulated relative path inverse prefix, unique key}
-local relative_path_indirection_stack = {}
-local relative_path_indirection_stack_size = 0
+-- every entry consists of entries for accumulated relative path prefix, accumulated relative path inverse prefix, recursive global table backup, standard input file, standard output file, standard output buffer, newly acquired modules, and unique key
+local indirection_stack = {}
+local indirection_stack_size = 0
 
 -- increases the relative path indirection stack, returns a unique key required for decreasing the stack again (to guard against misuse)
-function indirection_layer.increase_stack(relative_path_prefix)
+function indirection_layer.increase_stack(relative_path_prefix, new_arg)
 	-- normalize prefix
-	relative_path_prefix = util.remove_quotes(relative_path_prefix)
-	relative_path_prefix = string.sub(relative_path_prefix, -1) == "/" and relative_path_prefix
-		or relative_path_prefix.."/"
-	assert(not util.path_is_absolute(relative_path_prefix))
-	assert(util.directory_exists(relative_path_prefix))
+	relative_path_prefix = relative_path_prefix or ""
+	if #relative_path_prefix > 0 then
+		relative_path_prefix = string.sub(relative_path_prefix, -1) == "/" and relative_path_prefix
+			or relative_path_prefix.."/"
+		assert(not util.path_is_absolute(relative_path_prefix))
+		assert(util.directory_exists(relative_path_prefix))
+	end
 	
-	-- ensure our own package path entries are absolute first, because that may rely on querying the current directory
+	-- ensure our own package path entries are absolute first, because the function only runs once and may rely on querying the current directory
 	_G.benmet_ensure_package_path_entries_are_absolute()
-	package_path = (package.path or LUA_PATH)
 	
 	-- calculate depth of the new prefix
 	local depth = 0
@@ -220,32 +250,49 @@ function indirection_layer.increase_stack(relative_path_prefix)
 		end
 	end
 	
+	-- make a backup of the environment table
+	local env_table_backup = table_backup(env_table)
+	
 	-- save current state to the stack
 	local unique_key = {}
-	local n = relative_path_indirection_stack_size
-	relative_path_indirection_stack[n+1] = relative_path_indirection_prefix
-	relative_path_indirection_stack[n+2] = relative_path_inverse_indirection_prefix
-	relative_path_indirection_stack[n+3] = package_path
-	relative_path_indirection_stack[n+4] = package and package.cpath
-	relative_path_indirection_stack[n+5] = unique_key
+	local n = indirection_stack_size
+	indirection_stack[n+1] = relative_path_indirection_prefix
+	indirection_stack[n+2] = relative_path_inverse_indirection_prefix
+	indirection_stack[n+3] = io_standard_input_file
+	indirection_stack[n+4] = io_standard_output_file
+	indirection_stack[n+5] = io_in_memory_stdout_buffer
+	indirection_stack[n+6] = env_table_backup
+	indirection_stack[n+7] = unique_key
 	-- grow stack
-	relative_path_indirection_stack_size = relative_path_indirection_stack_size + 5
+	indirection_stack_size = indirection_stack_size + 7
 	
-	-- update package.path/LUA_PATH and package.cpath
-	if package_path then
-		package_path = util.prefix_relative_path_templates_in_string(package_path, relative_path_prefix)
-		LUA_PATH = LUA_PATH and package_path
-		if package and package.path then
-			package.path = package_path
+	if #relative_path_prefix > 0 then
+		-- update package.path/LUA_PATH and package.cpath
+		local package_path = (package.path or LUA_PATH)
+		if package_path then
+			package_path = util.prefix_relative_path_templates_in_string(package_path, relative_path_prefix)
+			LUA_PATH = LUA_PATH and package_path
+			if package and package.path then
+				package.path = package_path
+			end
 		end
-	end
-	if package and package.cpath then
-		package.cpath = util.prefix_relative_path_templates_in_string(package.cpath, relative_path_prefix)
+		if package and package.cpath then
+			package.cpath = util.prefix_relative_path_templates_in_string(package.cpath, relative_path_prefix)
+		end
+		
+		-- update prefixes
+		relative_path_indirection_prefix = relative_path_indirection_prefix .. relative_path_prefix
+		relative_path_inverse_indirection_prefix = relative_path_inverse_indirection_prefix .. string.rep("../", depth)
 	end
 	
-	-- update prefixes
-	relative_path_indirection_prefix = relative_path_indirection_prefix .. relative_path_prefix
-	relative_path_inverse_indirection_prefix = relative_path_inverse_indirection_prefix .. string.rep("../", depth)
+	-- install io indirection
+	io_standard_input_file = io.stdin -- strangely, the standard behaviour for io.popen(_, 'r') is to pass through our own stdin
+	io_standard_output_file = io_in_memory_stdout_file
+	io_in_memory_stdout_buffer = {}
+	io_indirection_count = io_indirection_count + 1
+	
+	-- install new arg table
+	arg = new_arg
 	
 	return unique_key
 end
@@ -253,30 +300,38 @@ end
 -- decreases the relative path indirection stack, requires the unique key returned from the matching call to indirection_layer.increase_stack
 function indirection_layer.decrease_stack(unique_key)
 	-- restore previous state from the stack
-	local n = relative_path_indirection_stack_size
-	assert(unique_key == relative_path_indirection_stack[n])
-	
-	if package and package.cpath then
-		package.cpath = relative_path_indirection_stack[n-1]
-	end
-	
-	if package_path then
-		package.path = package.path and relative_path_indirection_stack[n-2]
-		LUA_PATH = LUA_PATH and relative_path_indirection_stack[n-2]
-	end
-	
-	relative_path_inverse_indirection_prefix = relative_path_indirection_stack[n-3]
-	relative_path_indirection_prefix = relative_path_indirection_stack[n-4]
+	assert(unique_key == indirection_stack[indirection_stack_size])
 	
 	-- shrink stack
-	relative_path_indirection_stack_size = relative_path_indirection_stack_size - 5
+	indirection_stack_size = indirection_stack_size - 7
+	local n = indirection_stack_size
+	
+	-- restore the environment table from our backup
+	table_restore_from_backup(indirection_stack[n+7])
+	
+	-- gather output from memory
+	local in_memory_stdout_result = table.concat(io_in_memory_stdout_buffer)
+	-- restore io state
+	io_indirection_count = io_indirection_count - 1
+	io_in_memory_stdout_buffer = indirection_stack[n+5]
+	io_standard_output_file = indirection_stack[n+4]
+	io_standard_input_file = indirection_stack[n+3]
+	
+	relative_path_inverse_indirection_prefix = indirection_stack[n+2]
+	relative_path_indirection_prefix = indirection_stack[n+1]
+	
 	
 	-- remove previous state from the stack (not strictly necessary)
-	relative_path_indirection_stack[n] = nil
-	relative_path_indirection_stack[n-1] = nil
-	relative_path_indirection_stack[n-2] = nil
-	relative_path_indirection_stack[n-3] = nil
-	relative_path_indirection_stack[n-4] = nil
+	indirection_stack[n+1] = nil
+	indirection_stack[n+2] = nil
+	indirection_stack[n+3] = nil
+	indirection_stack[n+4] = nil
+	indirection_stack[n+5] = nil
+	indirection_stack[n+6] = nil
+	indirection_stack[n+7] = nil
+	indirection_stack[n+8] = nil
+	
+	return in_memory_stdout_result
 end
 
 
@@ -343,17 +398,44 @@ if package then
 end
 
 handle_all_entries(original_functions_by_table[io], {
+	close = provide_replacement(function(original_close)
+			return function(file, ...) -- if file is nil, it refers to the default output file
+				if io_indirection_count == 0 or file ~= nil then
+					return original_close(file, ...)
+				end
+				return io_standard_output_file:close()
+			end
+		end),
+	flush = provide_replacement(function(original_flush)
+			return function()
+				if io_indirection_count == 0 then
+					return original_flush()
+				end
+				return io_standard_output_file:flush()
+			end
+		end),
 	input = provide_replacement(function(original_input)
-			return function(file, ...) -- if file is a string, it is a file path
-				file = type(file) == 'string' and prefix_indirection_if_relative(file)
+			return function(file, ...) -- if file is a string, it is a file path; if it is nil, we only return the default input file
+				local file_is_string = type(file) == 'string'
+				file = file_is_string and prefix_indirection_if_relative(file)
 					or file
-				return original_input(file, ...)
+				if io_indirection_count == 0 then
+					return original_input(file, ...)
+				end
+				if file ~= nil then
+					io_standard_input_file = file_is_string and assert(io.open(file, 'r')) -- technically the error message is formatted a bit differently between io.input and io.open
+						or file
+				end
+				return io_standard_input_file
 			end
 		end),
 	lines = provide_replacement(function(original_lines)
 			return function(filename, ...)
-				filename = filename and prefix_indirection_if_relative(filename)
-				return original_lines(filename, ...)
+				if io_indirection_count == 0 or filename then
+					filename = filename and prefix_indirection_if_relative(filename)
+					return original_lines(filename, ...)
+				end
+				return io_standard_input_file:lines(...)
 			end
 		end),
 	open = provide_replacement(function(original_open)
@@ -363,16 +445,48 @@ handle_all_entries(original_functions_by_table[io], {
 			end
 		end),
 	output = provide_replacement(function(original_output)
-			return function(file, ...) -- if file is a string, it is a file path
-				file = type(file) == 'string' and prefix_indirection_if_relative(file)
+			return function(file, ...) -- if file is a string, it is a file path; if it is nil, we only return the default input file
+				local file_is_string = type(file) == 'string'
+				file = file_is_string and prefix_indirection_if_relative(file)
 					or file
-				return original_output(file, ...)
+				if io_indirection_count == 0 then
+					return original_output(file, ...)
+				end
+				if file ~= nil then
+					io_standard_output_file = file_is_string and assert(io.open(file, 'w')) -- technically the error message is formatted a bit differently between io.output and io.open
+						or file
+				end
+				return io_standard_output_file
 			end
 		end),
 	popen = provide_replacement(function(original_popen)
 			return function(prog, --[[ [, mode] ]]...) -- prog is a shell command
 				prog = wrap_shell_command(prog)
 				return original_popen(prog, ...)
+			end
+		end),
+	read = provide_replacement(function(original_read)
+			return function(--[[formats]]...)
+				if io_indirection_count == 0 then
+					return original_read(...)
+				end
+				return io_standard_input_file:read(...)
+			end
+		end),
+	type = provide_replacement(function(original_type)
+			return function(file, ...)
+				if io_indirection_count == 0 or file ~= io_in_memory_stdout_file then
+					return original_type(file, ...)
+				end
+				return 'file'
+			end
+		end),
+	write = provide_replacement(function(original_write)
+			return function(--[[formats]]...)
+				if io_indirection_count == 0 then
+					return original_write(...)
+				end
+				return io_standard_output_file:write(...)
 			end
 		end),
 })
@@ -424,6 +538,28 @@ handle_all_entries(original_functions_by_table[env_table], {
 			end
 		end),
 	
+	print = provide_replacement(function(original_print)
+			return function(--[[args]]...)
+				if io_indirection_count == 0 then
+					return original_print(...)
+				end
+				local args_list = {--[[args]]...}
+				local n = #io_in_memory_stdout_buffer
+				if #args_list > 0 then
+					n = n + 1
+					io_in_memory_stdout_buffer[n] = tostring(args_list[1])
+					for i = 2, #args_list do
+						n = n + 1
+						io_in_memory_stdout_buffer[n] = "\t"
+						n = n + 1
+						io_in_memory_stdout_buffer[n] = tostring(args_list[i])
+					end
+				end
+				n = n + 1
+				io_in_memory_stdout_buffer[n] = "\n"
+			end
+		end),
+	
 	benmet_get_lua_program_command = provide_replacement(function(original_benmet_get_lua_program_command)
 			return function()
 				local new_function
@@ -450,6 +586,125 @@ handle_all_entries(original_functions_by_table[env_table], {
 			end
 		end),
 })
+
+
+-- implement io_in_memory_stdout_file
+local file_metatable = getmetatable(io.stdout)
+local file_metatable__index = file_metatable.__index
+local file_fields = type(file_metatable__index) == 'table' and file_metatable__index
+	or setmetatable({}, {__index = function(self, index)
+			local value = file_metatable__index(self, index)
+			self[index] = value
+			return value
+		end})
+
+local io_stdout_tostring = tostring(io.stdout)
+io_in_memory_stdout_file = setmetatable({
+	close = function(...)
+		if ... ~= io_in_memory_stdout_file then
+			return file_fields.close(...)
+		end
+		return nil, "cannot close standard file"
+	end,
+	flush = function(...)
+		if ... ~= io_in_memory_stdout_file then
+			return file_fields.flush(...)
+		end
+		return true
+	end,
+	lines = function(...)
+		if ... ~= io_in_memory_stdout_file then
+			return file_fields.lines(...)
+		end
+		local error_message = util.system_type == 'windows' and "No error"
+			or "Bad file descriptor"
+		return function() error(error_message) end
+	end,
+	read = function(...)
+		if ... ~= io_in_memory_stdout_file then
+			return file_fields.read(...)
+		end
+		-- technically format '*a' deadlocks on unix, but that's not useful behaviour
+		return nil, "Bad file descriptor", 9
+	end,
+	seek = function(...)
+		if ... ~= io_in_memory_stdout_file then
+			return file_fields.seek(...)
+		end
+		if util.system_type == 'windows' then
+			return nil, "Bad file descriptor", 9
+		else -- if util.system_type == 'unix'
+			return nil, "Illegal seek", 29
+		end
+	end,
+	setvbuf = file_fields.setvbuf and function(...)
+		local self, mode = ...
+		if self ~= io_in_memory_stdout_file then
+			return file_fields.setvbuf(...)
+		end
+		if mode ~= 'no' and mode ~= 'full' and mode ~= 'line' then
+			error("bad argument #1 to 'setvbuf' (invalid option '"..mode.."')")
+		end
+		return true
+	end,
+	write = function(...)
+		if ... ~= io_in_memory_stdout_file then
+			return file_fields.write(...)
+		end
+		local arg_list = {--[[args]]select(2, ...)}
+		local n = #io_in_memory_stdout_buffer
+		for i = 1, #arg_list do
+			local e = arg_list[i]
+			local e_type = type(e)
+			if e_type ~= 'number' and e_type ~= 'string' then
+				local mt = getmetatable(e)
+				local mt_name = mt and mt.__name
+				mt_name = mt_name and tostring(mt_name)
+					or e_type
+				error("bad argument #"..i.." to 'write' (string expected, got "..mt_name..")")
+			end
+			io_in_memory_stdout_buffer[n+i] = e
+		end
+	end,
+}, {
+	__name = file_metatable.__name,
+	__tostring = function(...)
+		if ... ~= io_in_memory_stdout_file then
+			return file_metatable.__tostring(...)
+		end
+		return io_stdout_tostring
+	end
+})
+
+
+-- implement table_backup
+local function table_backup_impl(t, backup, type_f)
+	backup[t] = util.table_copy_shallow(t)
+	for k,v in pairs(t) do
+		if backup[k] == nil and type_f(k) == 'table' then
+			table_backup_impl(k, backup, type_f)
+		end
+		if backup[v] == nil and type_f(v) == 'table' then
+			table_backup_impl(v, backup, type_f)
+		end
+	end
+end
+table_backup = function(t, backup)
+	backup = backup or {}
+	table_backup_impl(t, backup, type)
+	return backup
+end
+
+table_restore_from_backup = function(backup)
+	for t,state in pairs(backup) do
+		for k in pairs(t) do
+			t[k] = nil
+		end
+		for k,v in pairs(state) do
+			t[k] = v
+		end
+	end
+end
 
 
 
