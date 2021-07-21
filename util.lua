@@ -813,7 +813,7 @@ util.debug_detail_level = 0
 		
 		local cached_lua_program
 		install_delayed_impl_selector(util, 'get_lua_program', {
-			function() return _G.benmet_get_lua_program_command end, function() return util.in_quotes(_G.benmet_get_lua_program_command()) end,
+			function() return _G.benmet_get_lua_program_command end, function() return _G.benmet_get_lua_program_command() end,
 			function()
 					cached_lua_program = util.find_program("lua53")
 						or util.find_program("lua5.3")
