@@ -822,6 +822,7 @@ util.debug_detail_level = 0
 				end, function() return cached_lua_program end,
 		})
 		
+		local loadfile_cache = {}
 		function util.execute_lua_script_as_if_program(path, args_list, at_relative_path)
 			assert(path, "no lua script path given to util.execute_lua_script_as_if_program")
 			assert(not (at_relative_path and _G.benmet_disable_indirection_layer))
@@ -831,16 +832,24 @@ util.debug_detail_level = 0
 			util.logprint("executing Lua script \""..path.."\" as program "..(at_relative_path and "at relative path \""..at_relative_path.."\" " or "").."with args: '"..table.concat(args_list, "' '").."'")
 			incdl()
 				
-				-- load the script in the global environmnent
-				local loaded_script, loading_error = loadfile(path)
+				-- look for the loaded script in cache
+				local indirection_layer = require "benmet.indirection_layer"
+				local cache_key = indirection_layer.path_to_cache_key(path)
+				local loaded_script = loadfile_cache[cache_key]
+
 				if not loaded_script then
-					util.debugprint("failed to load the script: "..loading_error)
-					decdl()
-					return false, 'exit', 1, loading_error
+					-- load the script in the global environmnent
+					local loading_error
+					loaded_script, loading_error = loadfile(path)
+					if not loaded_script then
+						util.debugprint("failed to load the script: "..loading_error)
+						decdl()
+						return false, 'exit', 1, loading_error
+					end
+					loadfile_cache[cache_key] = loaded_script
 				end
 				
 				-- simulate changing to the requested working directory, back up the global environment and replace the arg table
-				local indirection_layer = require "benmet.indirection_layer"
 				indirection_stack_key = indirection_layer.increase_stack(at_relative_path, args_list)
 				
 				-- replace os.exit with coroutine.yield, the script is run as a coroutine so we can stop execution upon this being called
