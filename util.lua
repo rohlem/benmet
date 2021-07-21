@@ -822,58 +822,45 @@ util.debug_detail_level = 0
 				end, function() return cached_lua_program end,
 		})
 		
-		-- the template table that is copied to be the _G of executed Lua scripts
-		-- note: this does not provide complete isolation, mainly stdin/stderr are still shared (could be closed),
-		-- and some debug functions like debug.setmetatable could do mean things (but reengineering them under open-world assumption is pretty involved)
-		local lua_script_spoofed_G_template = table_copy_deep(_G)
-		lua_script_spoofed_G_template._G = lua_script_spoofed_G_template._G
-		lua_script_spoofed_G_template.arg = nil
-		-- os.exit becomes coroutine.yield, the script is run as a coroutine so we can stop execution upon this being called
-		lua_script_spoofed_G_template.os.exit = lua_script_spoofed_G_template.coroutine.yield
-		-- print collects all printed strings into a table to be concatenated after execution
-		local lua_script_spoofed_output_fragments
-		local lua_script_spoofed_print = function(--[[args]]...)
-				local args_list = {--[[args]]...}
-				local n = #lua_script_spoofed_output_fragments
-				for i = 1, #args_list do
-					lua_script_spoofed_output_fragments[n+i] = tostring(args_list[i])
-				end
-				lua_script_spoofed_output_fragments[n + #args_list + 1] = "\n"
-			end
-		lua_script_spoofed_G_template.print = lua_script_spoofed_print
-		-- TODO: also wrap io functions on io.stdout and io.stdout itself to add to lua_script_spoofed_output_fragments
-		
-		function util.execute_lua_script_as_if_program(path, args_list)
+		function util.execute_lua_script_as_if_program(path, args_list, at_relative_path)
 			assert(path, "no lua script path given to util.execute_lua_script_as_if_program")
-			util.logprint("executing Lua script \""..path.."\" as program with args: "..table.concat(args_list, " "))
+			assert(not (at_relative_path and _G.benmet_disable_indirection_layer))
+			at_relative_path = at_relative_path and (
+					(string.sub(at_relative_path, -1) == "/" or string.sub(at_relative_path, -1) == "\\") and at_relative_path
+					or at_relative_path.."/")
+			util.logprint("executing Lua script \""..path.."\" as program "..(at_relative_path and "at relative path \""..at_relative_path.."\" " or "").."with args: '"..table.concat(args_list, "' '").."'")
 			incdl()
-				-- set up a "spoofed" global _G environment table
-				local spoofed_G = table_copy_deep(lua_script_spoofed_G_template)
-				spoofed_G.arg = table_copy_shallow(args_list)
 				
-				-- load the script
-				local loaded_script, loading_error
-				if not setfenv then -- if setfenv is no longer present, we're in Lua verison 5.2 or higher and 'loadfile' sets the environment
-					loaded_script, loading_error = loadfile(path, 't', spoofed_G)
-				else -- is setfenv is present, we need to set the environment afterwards
-					loaded_script, loading_error = loadfile(path)
-					if loaded_script then
-						setfenv(loaded_script, spoofed_G)
-					end
-				end
+				-- load the script in the global environmnent
+				local loaded_script, loading_error = loadfile(path)
 				if not loaded_script then
 					util.debugprint("failed to load the script: "..loading_error)
 					decdl()
 					return false, 'exit', 1, loading_error
 				end
 				
-				lua_script_spoofed_output_fragments = {}
+				-- simulate changing to the requested working directory, back up the global environment and replace the arg table
+				local indirection_layer = require "benmet.indirection_layer"
+				indirection_stack_key = indirection_layer.increase_stack(at_relative_path, args_list)
+				
+				-- replace os.exit with coroutine.yield, the script is run as a coroutine so we can stop execution upon this being called
+				_G.benmet_ensure_package_path_entries_are_absolute()
+				os.exit = coroutine.yield
+				
+				-- disable debug details for nested execution
+				local prev_ddl = util.debug_detail_level
+				util.debug_detail_level = 0
 				
 				-- run the script as a coroutine, so we can stop its execution upon call to its os.exit (-> coroutine.yield)
 				local script_coroutine = coroutine.create(loaded_script)
 				local successful, return_code_or_run_error = coroutine.resume(script_coroutine, (table.unpack or unpack)(args_list))
 				
-				local script_output = table.concat(lua_script_spoofed_output_fragments)
+				-- re-enable debug details
+				util.debug_detail_level = prev_ddl
+				
+				-- revert working directory, io and global state
+				-- read script output
+				local script_output = indirection_layer.decrease_stack(indirection_stack_key)
 				util.debugprint("the script wrote: "..script_output)
 				
 				if not successful then
@@ -885,9 +872,7 @@ util.debug_detail_level = 0
 					return false, 'exit', 1, return_code_or_run_error
 				end
 				
-				lua_script_spoofed_output_fragments = nil
-				
-				if coroutine.status(script_coroutine) ~= 'suspended' then -- the script's body finished, report success (we explicitly any value it returned)
+				if coroutine.status(script_coroutine) ~= 'suspended' then -- the script's body finished, report success (we explicitly ignore any value it returned)
 					util.debugprint("the script finished execution")
 					util.debugprint("it succeeded by 'exit' with status 0")
 					decdl()
