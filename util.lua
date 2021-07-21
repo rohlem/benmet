@@ -946,8 +946,7 @@ util.debug_detail_level = 0
 		util.discard_stderr_suffix = " 2>"..util.discard_output_file
 		
 		function util.ensure_file(path)
-			path = util.remove_quotes(path)
-			util.logprint("ensuring file: "..path)
+			util.logprint("ensuring file: '"..path.."'")
 			incdl()
 				local f = assert(io.open(path, "a+"))
 				assert(f:close())
@@ -955,8 +954,7 @@ util.debug_detail_level = 0
 		end
 		
 		function util.remove_file(path)
-			path = util.remove_quotes(path)
-			util.logprint("deleting file: "..path)
+			util.logprint("deleting file: "'""..path.."'")
 			incdl()
 				assert(os.remove(path))
 			decdl()
@@ -1082,9 +1080,6 @@ util.debug_detail_level = 0
 		end
 		
 		function util.move_file_in_directory(containing_dir_path, source_file_name, destination_file_name)
-			containing_dir_path = util.remove_quotes(containing_dir_path)
-			source_file_name = util.remove_quotes(source_file_name)
-			destination_file_name = util.remove_quotes(destination_file_name)
 			util.logprint("renaming file in directory '"..containing_dir_path.."' from '"..source_file_name.."' to '"..destination_file_name.."'")
 			incdl()
 				assert(os.rename(containing_dir_path.."/"..source_file_name, containing_dir_path.."/"..destination_file_name))
