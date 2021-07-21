@@ -133,9 +133,20 @@ end
 -- directly invoke the given command of the given step at the given path (step run directory)
 local step_invoke_command_raw = function(step_name, at_path, command, relative_step_dir_path)
 	local step_script_path = get_relative_step_script_path(step_name)
-	local launch_script_prefix = util.string_ends_with(step_script_path, ".lua") and util.get_lua_program().." "
-		or ""
-	local success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(launch_script_prefix..util.in_quotes(relative_step_dir_path..step_script_path).." "..command, get_benmet_lua_env_override_table_by_relative_step_dir_path()[relative_step_dir_path], at_path)
+	local env_override_table = get_benmet_lua_env_override_table_by_relative_step_dir_path()[relative_step_dir_path]
+	local success, exit_type, return_status, program_output
+	if util.string_ends_with(step_script_path, ".lua") then
+		if not _G.benmet_launch_steps_as_child_processes then
+			local prev_lua_path = util.getenv("LUA_PATH")
+			util.setenv("LUA_PATH", env_override_table.LUA_PATH)
+			success, exit_type, return_status, program_output = util.execute_lua_script_as_if_program(relative_path_prefix.."steps/"..step_name.."/"..step_script_path, {command}, at_path)
+			util.setenv("LUA_PATH", prev_lua_path)
+		else
+			success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.in_quotes(util.get_lua_program()).." "..util.in_quotes(relative_step_dir_path..step_script_path).." "..command, env_override_table, at_path)
+		end
+	else
+		success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.in_quotes(relative_step_dir_path..step_script_path).." "..command, env_override_table, at_path)
+	end
 	return success and program_output, return_status
 end
 
