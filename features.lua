@@ -682,8 +682,8 @@ function features.get_pipeline_file_path(target_step_name, initial_params)
 	local hash_dir_name = get_pipeline_hash_dir_name(initial_params)
 	local pipeline_hash_dir_path = relative_path_prefix .. "pipelines/"..target_step_name.."/"..hash_dir_name
 	if not pcall(util.ensure_directory, pipeline_hash_dir_path) then -- "pipelines/<target-step>" might not yet exist
-		pcall(util.create_new_directory, relative_path_prefix.."pipelines")
-		util.create_new_directory(relative_path_prefix.."pipelines/"..target_step_name)
+		pcall(util.create_new_directory, relative_path_prefix.."pipelines") -- might already exist
+		util.create_new_directory(relative_path_prefix.."pipelines/"..target_step_name) -- we assume the first pcall failed because this didn't exist, so creating it should work
 		util.create_new_directory(pipeline_hash_dir_path)
 	end
 	--assert(util.directory_exists(pipeline_hash_dir_path), "ensure_directories doesn't work")

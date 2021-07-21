@@ -986,8 +986,7 @@ util.debug_detail_level = 0
 		end
 		
 		function util.ensure_directory_return_created(path)
-			path = util.in_quotes(path)
-			util.logprint("ensuring directory: "..path)
+			util.logprint("ensuring directory: '"..path.."'")
 			local created
 			incdl()
 				if util.directory_exists(path) then
