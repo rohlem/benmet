@@ -3,6 +3,10 @@ This file is the program entry point.
 It handles argument parsing and forwards them to the program's commands declared in 'benmet.commands'.
 --]]
 
+-- compatibility configuration variables
+-- _G.benmet_launch_steps_as_child_processes = true -- set to true to force launching new Lua subprocesses for Lua step scripts, to guarantee isolation for subprocess launch overhead
+-- _G.benmet_disable_indirection_layer = _G.benmet_launch_steps_as_child_processes -- set to true to disable wrapping the standard library functions to isolate subprocesses (leads to errors unless _G.benmet_launch_steps_as_child_processes is true)
+
 -- global / general setup code
 
 local relative_path_prefix = "./"
