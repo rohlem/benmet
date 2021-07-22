@@ -759,7 +759,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 			-- try executing the build step
 			local output, return_status = features.step_invoke_command(step_name, command, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision)
 			if not output then
-				delayed_error_msg = "failed to execute step '"..step_name.."' in pipeline"
+				delayed_error_msg = "failed to execute step '"..step_name.."' in pipeline; exit code: "..tostring(return_status)
 				break
 			end
 			
