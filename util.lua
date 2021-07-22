@@ -858,7 +858,9 @@ util.debug_detail_level = 0
 				
 				-- disable debug details for nested execution
 				local prev_ddl = util.debug_detail_level
+				local prev_dl = detail_level
 				util.debug_detail_level = 0
+				detail_level = 0
 				
 				-- run the script as a coroutine, so we can stop its execution upon call to its os.exit (-> coroutine.yield)
 				local script_coroutine = coroutine.create(loaded_script)
@@ -866,6 +868,7 @@ util.debug_detail_level = 0
 				
 				-- re-enable debug details
 				util.debug_detail_level = prev_ddl
+				detail_level = prev_dl
 				
 				-- revert working directory, io and global state
 				-- read script output
