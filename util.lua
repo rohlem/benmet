@@ -846,6 +846,11 @@ util.debug_detail_level = 0
 						decdl()
 						return false, 'exit', 1, loading_error
 					end
+					
+					local unprotected = loaded_script
+					local select, assert, xpcall, debug_traceback = select, assert, xpcall, debug.traceback
+					loaded_script = function(...) return select(2, assert(xpcall(unprotected, debug_traceback, ...))) end
+					
 					loadfile_cache[cache_key] = loaded_script
 				end
 				
