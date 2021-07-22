@@ -857,6 +857,11 @@ util.debug_detail_level = 0
 				-- simulate changing to the requested working directory, back up the global environment and replace the arg table
 				indirection_stack_key = indirection_layer.increase_stack(at_relative_path, args_list)
 				
+				-- temporarily clear our env override table in util
+				local prev_env_override_table = env_override_table
+				env_override_table = {}
+				env_override_string = ""
+				
 				-- replace os.exit with coroutine.yield, the script is run as a coroutine so we can stop execution upon this being called
 				_G.benmet_ensure_package_path_entries_are_absolute()
 				os.exit = coroutine.yield
@@ -874,6 +879,10 @@ util.debug_detail_level = 0
 				-- re-enable debug details
 				util.debug_detail_level = prev_ddl
 				detail_level = prev_dl
+				
+				-- restore our previous env override table in util
+				env_override_table = prev_env_override_table
+				env_override_string = env_override_string_from_table(prev_env_override_table)
 				
 				-- revert working directory, io and global state
 				-- read script output
