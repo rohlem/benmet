@@ -309,7 +309,7 @@ function indirection_layer.decrease_stack(unique_key)
 	local n = indirection_stack_size
 	
 	-- restore the environment table from our backup
-	table_restore_from_backup(indirection_stack[n+7])
+	table_restore_from_backup(indirection_stack[n+6])
 	
 	-- gather output from memory
 	local in_memory_stdout_result = table.concat(io_in_memory_stdout_buffer)
