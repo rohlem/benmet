@@ -8,7 +8,7 @@ This file implements all "actual logic" of benmet, using platform specific funct
 local relative_path_prefix = assert(_G.benmet_relative_path_prefix)
 
 local util = require "benmet.util"
-util.debug_detail_level = 4
+util.debug_detail_level = 20
 local incdl = util.incdl
 local decdl = util.decdl
 
