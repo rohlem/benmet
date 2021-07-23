@@ -824,7 +824,7 @@ util.debug_detail_level = 0
 		})
 		
 		local loadfile_cache = {}
-		function util.execute_lua_script_as_if_program(path, args_list, at_relative_path)
+		function util.execute_lua_script_as_if_program(path, args_list, at_relative_path, new_os_env_override_table)
 			assert(path, "no lua script path given to util.execute_lua_script_as_if_program")
 			assert(not (at_relative_path and _G.benmet_disable_indirection_layer))
 			at_relative_path = at_relative_path and (
@@ -856,7 +856,7 @@ util.debug_detail_level = 0
 				end
 				
 				-- simulate changing to the requested working directory, back up the global environment and replace the arg table
-				indirection_stack_key = indirection_layer.increase_stack(at_relative_path, args_list)
+				indirection_stack_key = indirection_layer.increase_stack(at_relative_path, args_list, new_os_env_override_table)
 				
 				-- temporarily clear our env override table in util
 				local prev_env_override_table = env_override_table
