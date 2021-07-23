@@ -347,6 +347,7 @@ util.debug_detail_level = 0
 			end
 			return s
 		end
+		util.env_override_string_from_table = env_override_string_from_table
 		function util.setenv(varname, value)
 			assert(string.find(varname, "[\"`'=%-%s]") == nil, "invalid environment variable name")
 			env_override_table[varname] = value

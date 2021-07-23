@@ -1,6 +1,6 @@
 --[[
 This file holds logic to isolate the program state in a layer of indirection.
-Using this, Lua code can be instrumented to execute under a (simulated) different working directory, redirect stdout writes to a memory buffer and restore the io package and global environment table to a previous state.
+Using this, Lua code can be instrumented to execute under a (simulated) different working directory, different environment variables, redirect stdout writes to a memory buffer and restore the io package and global environment table to a previous state.
 This enables us to load step scripts (if they are Lua code) and run them in the same Lua VM instance, instead of launching a new subprocess.
 --]]
 
@@ -149,12 +149,13 @@ local pairs = pairs -- table_restore_from_backup can temporarily clear the globa
 	
 	handle_all_entries(os, {
 			execute = install_proxy_function, -- args: command
+			getenv = install_proxy_function, -- args: varname
 			remove = install_proxy_function, -- args: filename
 			rename = install_proxy_function, -- args: oldname, newname
 			tmpname = install_proxy_function, -- no args, returns file name
 		},
 		-- ignore list: entries that do not interact with the current working directory, stdout and io package state
-		{'clock', 'date', 'difftime', 'exit', 'getenv', 'setlocale', 'time'}
+		{'clock', 'date', 'difftime', 'exit', 'setlocale', 'time'}
 	)
 	
 	local env_table = getfenv and getfenv()
@@ -221,12 +222,16 @@ function indirection_layer.path_to_cache_key(path) -- lazy implementation, won't
 		or relative_path_indirection_prefix..(string.match(path, "^%.[/\\]+(.*)") or path)
 end
 
--- every entry consists of entries for accumulated relative path prefix, accumulated relative path inverse prefix, recursive global table backup, standard input file, standard output file, standard output buffer, newly acquired modules, and unique key
+-- current state related to simulating/enforcing different environment variables than the original host process was launched with
+local os_env_override_table = {}
+local os_env_override_string = ""
+
+-- every entry consists of entries for accumulated relative path prefix, accumulated relative path inverse prefix, recursive global table backup, standard input file, standard output file, standard output buffer, accumulated os env override table, and unique key
 local indirection_stack = {}
 local indirection_stack_size = 0
 
 -- increases the relative path indirection stack, returns a unique key required for decreasing the stack again (to guard against misuse)
-function indirection_layer.increase_stack(relative_path_prefix, new_arg)
+function indirection_layer.increase_stack(relative_path_prefix, new_arg, new_os_env_override_table)
 	-- normalize prefix
 	relative_path_prefix = relative_path_prefix or ""
 	if #relative_path_prefix > 0 then
@@ -255,6 +260,14 @@ function indirection_layer.increase_stack(relative_path_prefix, new_arg)
 	-- make a backup of the environment table
 	local env_table_backup = table_backup(env_table)
 	
+	-- back up the previous os env override table, patch the new overrides over the current table
+	local prev_os_env_override_table = os_env_override_table
+	if new_os_env_override_table then
+		os_env_override_table = util.table_copy_shallow(os_env_override_table)
+		os_env_override_table = util.table_patch_in_place(os_env_override_table, new_os_env_override_table)
+		os_env_override_string = util.env_override_string_from_table(os_env_override_table)
+	end
+	
 	-- save current state to the stack
 	local unique_key = {}
 	local n = indirection_stack_size
@@ -264,9 +277,10 @@ function indirection_layer.increase_stack(relative_path_prefix, new_arg)
 	indirection_stack[n+4] = io_standard_output_file
 	indirection_stack[n+5] = io_in_memory_stdout_buffer
 	indirection_stack[n+6] = env_table_backup
-	indirection_stack[n+7] = unique_key
+	indirection_stack[n+7] = prev_os_env_override_table
+	indirection_stack[n+8] = unique_key
 	-- grow stack
-	indirection_stack_size = indirection_stack_size + 7
+	indirection_stack_size = indirection_stack_size + 8
 	
 	if #relative_path_prefix > 0 then
 		-- update package.path/LUA_PATH and package.cpath
@@ -305,8 +319,12 @@ function indirection_layer.decrease_stack(unique_key)
 	assert(unique_key == indirection_stack[indirection_stack_size])
 	
 	-- shrink stack
-	indirection_stack_size = indirection_stack_size - 7
+	indirection_stack_size = indirection_stack_size - 8
 	local n = indirection_stack_size
+	
+	-- restore the previous os env override table
+	os_env_override_table = indirection_stack[n+7]
+	os_env_override_string = util.env_override_string_from_table(os_env_override_table)
 	
 	-- restore the environment table from our backup
 	table_restore_from_backup(indirection_stack[n+6])
@@ -366,7 +384,7 @@ local prefix_inverse_indirection_if_relative = function(path)
 
 local wrap_shell_command = function(command)
 	return command and (command == "" and command
-			or "cd "..util.in_quotes(relative_path_indirection_prefix).." && ( "..command.." )")
+			or os_env_override_string.."cd "..util.in_quotes(relative_path_indirection_prefix).." && ( "..command.." )")
 end
 
 local original_table_by_original_functions_table = {}
@@ -498,6 +516,15 @@ handle_all_entries(original_functions_by_table[os], {
 			return function(command, ...)
 				command = wrap_shell_command(command)
 				return original_execute(command, ...)
+			end
+		end),
+	getenv = provide_replacement(function(original_getenv)
+			return function(...)
+				local overridden_value = type(--[[note how the extra paretheses coerce even 0 values to 1 value, so that type doesn't error]](...)) == 'string' and os_env_override_table[varname]
+				if overridden_value ~= nil then
+					return overridden_value
+				end
+				return original_getenv(...)
 			end
 		end),
 	remove = provide_replacement(function(original_remove)
