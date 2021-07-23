@@ -870,6 +870,9 @@ util.debug_detail_level = 0
 				env_override_table = {}
 				env_override_string = ""
 				
+				-- copy find_program cache
+				local prev_find_program_cache = table_copy_shallow(find_program_cache)
+				
 				-- replace os.exit with coroutine.yield, the script is run as a coroutine so we can stop execution upon this being called
 				_G.benmet_ensure_package_path_entries_are_absolute()
 				os.exit = coroutine.yield
@@ -887,6 +890,9 @@ util.debug_detail_level = 0
 				-- re-enable debug details
 				util.debug_detail_level = prev_ddl
 				detail_level = prev_dl
+				
+				-- restore find_program cache, in case the script did something with PATH
+				find_program_cache = prev_find_program_cache
 				
 				-- restore our previous env override table in util
 				env_override_table = prev_env_override_table
