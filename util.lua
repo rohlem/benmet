@@ -405,17 +405,24 @@ util.debug_detail_level = 0
 			end
 		end
 		function util.find_program(program_name)
+			assert(program_name)
 			assert(util.find_program_program)
+			util.logprint("looking up program '"..program_name.."'")
+			incdl()
+				local found, exit_type, return_code, program_output = util.execute_command(util.find_program_program.." "..util.in_quotes(program_name))
+			decdl()
+			local result = found and (util.cut_trailing_space(program_output)
+					or found)
+				or false
+			find_program_cache[program_name] = result
+			return result
+		end
+		function util.find_program_cached(program_name)
 			local result = find_program_cache[program_name]
-			util.logprint("looking up program '"..program_name.."'"..(result and " (cached)" or ""))
-			if result == nil then
-				incdl()
-					local found, exit_type, return_code, program_output = util.execute_command(util.find_program_program.." "..util.in_quotes(program_name))
-				decdl()
-				result = found and (util.cut_trailing_space(program_output)
-						or found)
-					or false
-				find_program_cache[program_name] = result
+			if result ~= nil then
+				util.logprint("looked up program '"..program_name.."' (from cache): "..tostring(result))
+			else
+				result = util.find_program(program_name)
 			end
 			return result
 		end
@@ -816,9 +823,9 @@ util.debug_detail_level = 0
 		install_delayed_impl_selector(util, 'get_lua_program', {
 			function() return _G.benmet_get_lua_program_command end, function() return _G.benmet_get_lua_program_command() end,
 			function()
-					cached_lua_program = util.find_program("lua53")
-						or util.find_program("lua5.3")
-						or util.find_program("lua")
+					cached_lua_program = util.find_program_cached("lua53")
+						or util.find_program_cached("lua5.3")
+						or util.find_program_cached("lua")
 					return cached_lua_program
 				end, function() return cached_lua_program end,
 		})
@@ -927,7 +934,7 @@ util.debug_detail_level = 0
 		
 	-- file system
 		install_delayed_impl_selector(util, 'get_current_directory', {
-			function() return util.find_program("pwd") end, function()
+			function() return util.find_program_cached("pwd") end, function()
 				incdl()
 					local program_success, exit_type, return_status, program_output = assert(util.execute_command("pwd"))
 				decdl()
@@ -1015,7 +1022,7 @@ util.debug_detail_level = 0
 		util.ensure_directory = util.ensure_directory_return_created
 		
 		install_delayed_impl_selector(util, 'ensure_directories', {
-			function() return util.find_program('mkdir') end, function(path) -- if mkdir is a program, use the '-p' flag
+			function() return util.find_program_cached('mkdir') end, function(path) -- if mkdir is a program, use the '-p' flag
 				path = util.in_quotes(path)
 				util.logprint("ensuring directories: "..path)
 				incdl()
@@ -1032,7 +1039,7 @@ util.debug_detail_level = 0
 		})
 		
 		install_delayed_impl_selector(util, 'remove_directory', {
-			function() return util.find_program("rm") end, function(path)
+			function() return util.find_program_cached("rm") end, function(path)
 				util.logprint("deleting directory: "..path)
 				incdl()
 					assert(util.execute_command("rm -f -R "..util.in_quotes(path)), "failed to delete directory: "..path)
@@ -1071,7 +1078,7 @@ util.debug_detail_level = 0
 				return files_to_list
 			end
 		install_delayed_impl_selector(util, 'remove_all_in_directory_except', {
-			function() return util.find_program("rm") end, function(directory_path, files_to_keep)
+			function() return util.find_program_cached("rm") end, function(directory_path, files_to_keep)
 				util.logprint("clearing directory '"..directory_path.."' except for '"..table.concat(files_to_keep, "', '").."'")
 				incdl()
 					assert(util.execute_command_at("rm -Rf "..files_in_directory_as_string_list_except(directory_path, files_to_keep), directory_path))
@@ -1098,7 +1105,7 @@ util.debug_detail_level = 0
 		end
 		
 		install_delayed_impl_selector(util, 'copy_file_to_become', {
-			function() return util.find_program("cp") end, function(source, destination)
+			function() return util.find_program_cached("cp") end, function(source, destination)
 				util.logprint("copying file '"..source.."' to become file '"..destination.."'")
 				incdl()
 					assert(util.execute_command("cp "..util.in_quotes(source).." "..util.in_quotes(destination)))
@@ -1113,13 +1120,13 @@ util.debug_detail_level = 0
 		})
 		
 		install_delayed_impl_selector(util, 'copy_directory_recursively_to_become', {
-			function() return util.find_program("cp") end, function(source, destination)
+			function() return util.find_program_cached("cp") end, function(source, destination)
 				util.logprint("copying directory '"..source.."' to become directory '"..destination.."'")
 				incdl()
 					assert(util.execute_command("cp -R -T "..util.in_quotes(source).." "..util.in_quotes(destination)))
 				decdl()
 			end,
-			function() return util.find_program("XCOPY") end, function(source, destination)
+			function() return util.find_program_cached("XCOPY") end, function(source, destination)
 				util.logprint("copying directory '"..source.."' to become directory '"..destination.."'")
 				incdl()
 					assert(util.execute_command("XCOPY /E /Q /Y "..util.in_quotes(source).." "..util.in_quotes(destination)))
@@ -1128,7 +1135,7 @@ util.debug_detail_level = 0
 		})
 		
 		install_delayed_impl_selector(util, 'files_in_directory', {
-			function() return util.find_program("ls") end, function(path)
+			function() return util.find_program_cached("ls") end, function(path)
 				util.logprint("listing files in directory: "..path)
 				incdl()
 					local success, exit_type, return_status, program_output = util.execute_command("ls -1A "..util.in_quotes(path))
@@ -1235,7 +1242,7 @@ util.debug_detail_level = 0
 		
 		local cached_hostname
 		install_delayed_impl_selector(util, 'get_hostname', {
-			function() return util.find_program("hostname") end, function()
+			function() return util.find_program_cached("hostname") end, function()
 				if not cached_hostname then
 					local success, exit_type, return_status, program_output = util.execute_command("hostname")
 					cached_hostname = program_output and util.cut_trailing_space(program_output)
