@@ -705,6 +705,8 @@ end
 
 -- pipeline features: execute a pipeline by starting/continuing its steps, creating/keeping a pipeline file on suspension
 -- assumes the file at existing_pipeline_file_path already exists and has been verified to not be a hash collision if not nil
+-- if the pipeline was finished, returns true,
+-- if the pipeline didn't complete, returns the name of the last processed step and the status it reported
 function features.execute_pipeline_steps(target_step_name, initial_params, existing_pipeline_file_path)
 	-- the path of the pipeline file corresponding to this pipeline instance
 	local pipeline_file_path = existing_pipeline_file_path
@@ -730,6 +732,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 		or features.get_pipeline_file_path(target_step_name, initial_params)
 	
 	-- execute steps one by one, abort on error or async step
+	local last_step_name, last_step_status -- if we don't finish the pipeline, return the last step's name and last reported status
 	local delayed_error_msg -- instead of calling error, we first want to create a pipeline file in case of failure
 	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
 		-- check for iteration-internal errors
@@ -749,6 +752,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 			if not command then -- step run is not executable
 				if status == 'pending' then
 					print("step '"..step_name.."' is waiting on asynchronous execution") -- debug print, TODO: adapt/remove
+					last_step_name, last_step_status = step_name, status
 					break
 				else
 					delayed_error_msg = "unrecognized build status '"..status.."', don't know how to execute step '"..step_name.."' in pipeline"
@@ -768,9 +772,11 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 			if status ~= 'finished' then
 				if status == 'pending' or status == 'continuable' then -- if it's continuable we could loop executing 'continue', but that means unbounded complexity, we might get stuck if the script is faulty
 					print("step '"..step_name.."' suspended itself, waiting on asynchronous execution")
+					last_step_name, last_step_status = step_name, status
 					break
 				elseif status == 'startable' then
 					print("step '"..step_name.."' is startable, seems to have aborted execution")
+					last_step_name, last_step_status = step_name, status
 					break
 				else
 					delayed_error_msg = "unrecognized build status '"..status.."', don't know how to execute step '"..step_name.."' in pipeline"
@@ -783,11 +789,11 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 		if step_index == step_count then -- the pipeline instance is completed
 			if not existing_pipeline_file_path then -- no pipeline file written yet, we are done
 				print("finished pipeline")
-				return
+				return true
 			end
 			print("finished pipeline - deleting pipeline file '"..pipeline_file_path.."'")
 			util.remove_file(pipeline_file_path)
-			return
+			return true
 		end
 		-- otherwise, move on to the next step
 	end
@@ -798,7 +804,10 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 		print("created pipeline file '"..pipeline_file_path.."'")
 	end
 	
-	assert(not delayed_error_msg, delayed_error_msg) -- error if we aborted earlier
+	-- error if we aborted and set delayed_error_msg earlier
+	assert(not delayed_error_msg, delayed_error_msg)
+	-- otherwise report the last processed step and its last known status
+	return last_step_name, last_step_status
 end
 
 
