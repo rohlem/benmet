@@ -330,7 +330,7 @@ default_async_commands = util.table_patch(default_commands, {
 		local previous_stage = config.bookkeeping:get_previous_stage()
 		local ready_check_logic = previous_stage and previous_stage.ready_check_logic
 		if ready_check_logic then
-			ready_check_logic(config.bookkeeping)
+			ready_check_logic(config.bookkeeping) -- errors if an assumed postcondition of the previous stage does not hold (anymore)
 		end
 		
 		local current_stage = config.bookkeeping:get_current_stage()
@@ -351,6 +351,8 @@ default_async_commands = util.table_patch(default_commands, {
 			else
 				util.ensure_file(current_stage.completed_sentinel_file_path)
 				config.bookkeeping.current_stage_index = config.bookkeeping.current_stage_index+1
+				config.bookkeeping.prev_params_pending = config.bookkeeping.params_pending
+				config.bookkeeping.params_pending = nil
 				local continue_impl = config.commands and config.commands.continue
 					or default_async_commands.continue
 					or default_command_fallback
