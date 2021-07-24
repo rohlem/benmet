@@ -837,7 +837,8 @@ util.debug_detail_level = 0
 		-- with args_list as unquoted arguments, at at_relative_path relative to the script's path,
 		-- with environment variables overrides provided in new_os_env_override_table;
 		-- returns the same values as the util.execute_command-family of functions:
-		-- success (boolean), exit type (always 'exit'), return status (0 if successful, 1 otherwise), program output (string)
+		-- success (boolean), exit type (always 'exit'), return status (0 if successful, 1 otherwise), program output (string),
+		-- and as an additional fifth value (not available from util.execute_command) an error trace (or loading error message) in case of failure
 		function util.execute_lua_script_as_if_program(path, args_list, at_relative_path, new_os_env_override_table)
 			assert(path, "no lua script path given to util.execute_lua_script_as_if_program")
 			assert(not (at_relative_path and _G.benmet_disable_indirection_layer))
@@ -859,7 +860,7 @@ util.debug_detail_level = 0
 					if not loaded_script then
 						util.debugprint("failed to load the script: "..loading_error)
 						decdl()
-						return false, 'exit', 1, loading_error
+						return false, 'exit', 1, "", loading_error
 					end
 					
 					local unprotected = loaded_script
@@ -916,7 +917,7 @@ util.debug_detail_level = 0
 					-- io.stderr:write(return_code_or_run_error)
 					-- but additionally installing debug.traceback as error handler beforehand (in a wrapper function, or however else you do that on a coroutine)
 					decdl()
-					return false, 'exit', 1, return_code_or_run_error
+					return false, 'exit', 1, script_output, return_code_or_run_error
 				end
 				
 				if coroutine.status(script_coroutine) ~= 'suspended' then -- the script's body finished, report success (we explicitly ignore any value it returned)
