@@ -994,7 +994,6 @@ util.debug_detail_level = 0
 		end
 		
 		function util.remove_file_if_exists_return_existed(path)
-			path = util.in_quotes(path)
 			util.logprint("deleting file if it exists: "..path)
 			incdl()
 				local existed = os.remove(path)
