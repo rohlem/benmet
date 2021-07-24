@@ -1040,9 +1040,8 @@ local program_command_structures = {
 						print("Error cancelling pipeline: "..err_or_initial_status)
 					else
 						-- delete the corresponding pipeline file
-						local pipeline_file_path = features.get_pipeline_file_path(target_step_name, initial_params)
-						util.remove_file(pipeline_file_path)
-						print("deleted pipeline file '"..pipeline_file_path.."'")
+						util.remove_file(existing_pipeline_file_path)
+						print("deleted pipeline file '"..existing_pipeline_file_path.."'")
 					end
 				end)
 		end,
