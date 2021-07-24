@@ -153,6 +153,17 @@ local default_async_step_bookkeeping_query_initial_status = function(config, boo
 			status = 'continuable'
 			break
 		elseif util.file_exists(assert(current_stage.pending_sentinel_file_path)) then
+			-- if there is an explicit test function and it returns true, the stage completed
+			local test_pending_for_completion_logic = current_stage.test_pending_for_completion_logic
+			if test_pending_for_completion_logic then
+				if test_pending_for_completion_logic(bookkeeping) then
+					-- create the sentinel file so can skip this logic next time
+					util.ensure_file(current_stage.completed_sentinel_file_path)
+					status = 'continuable'
+					break
+				end
+			end
+			-- otherwise the completed file sentinel would have had to exist for the stage to be completed
 			local test_pending_for_error_logic = current_stage.test_pending_for_error_logic
 			if test_pending_for_error_logic then
 				local error_condition = test_pending_for_error_logic(bookkeeping)
