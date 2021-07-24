@@ -816,7 +816,7 @@ end
 
 
 -- pipeline features: cancel a pipeline by cancelling its currently-suspended step run in a pipeline, optionally delete that step run's directory
-function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, discard_last_step_and_pipeline)
+function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, select_continuable, discard_last_step_and_pipeline)
 	local return_status
 	local all_steps_finished
 	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
@@ -832,9 +832,11 @@ function features.cancel_pipeline_instance(target_step_name, initial_params, sel
 		if status ~= 'finished' then
 			local was_pending = status == 'pending'
 			local was_error = util.string_starts_with(status, "error")
-			if was_pending or was_error then
+			local was_continuable = status == 'continuable'
+			if was_pending or was_error or was_continuable then
 				local selected = select_pending and was_pending
 					or select_errors and was_error
+					or select_continuable and was_continuable
 				if selected then
 					features.step_invoke_command(step_name, 'cancel', active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision)
 					status = features.step_query_status(step_name, step_run_path)
@@ -846,7 +848,7 @@ function features.cancel_pipeline_instance(target_step_name, initial_params, sel
 						util.remove_directory(step_run_path)
 					end
 				end
-			elseif status ~= 'startable' and status ~= 'continuable' then
+			elseif status ~= 'startable' then
 				error("unexpected build status '"..status.."' in step '"..step_name.."', don't know how to cancel pipeline towards step '"..target_step_name.."'")
 			end
 			break
