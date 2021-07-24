@@ -1008,7 +1008,10 @@ local program_command_structures = {
 			
 			return pipeline_collective_by_individuals_command(features, util, arguments, options, "cancel",
 				function(target_step_name, initial_params, existing_pipeline_file_path)
-					features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, select_continuable, false)
+					local successful, err_or_initial_status, new_status = xpcall(features.cancel_pipeline_instance, debug.traceback, target_step_name, initial_params, select_pending, select_errors, select_continuable, false)
+					if not successful then
+						print("Error cancelling pipeline: "..err_or_initial_status)
+					end
 				end)
 		end,
 	},
@@ -1032,11 +1035,15 @@ local program_command_structures = {
 			
 			return pipeline_collective_by_individuals_command(features, util, arguments, options, "discard",
 				function(target_step_name, initial_params, existing_pipeline_file_path)
-					features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, select_continuable, true)
-					-- delete the corresponding pipeline file
-					local pipeline_file_path = features.get_pipeline_file_path(target_step_name, initial_params)
-					util.remove_file(pipeline_file_path)
-					print("deleted pipeline file '"..pipeline_file_path.."'")
+					local successful, err_or_initial_status, new_status = xpcall(features.cancel_pipeline_instance, debug.traceback, target_step_name, initial_params, select_pending, select_errors, select_continuable, true)
+					if not successful then
+						print("Error cancelling pipeline: "..err_or_initial_status)
+					else
+						-- delete the corresponding pipeline file
+						local pipeline_file_path = features.get_pipeline_file_path(target_step_name, initial_params)
+						util.remove_file(pipeline_file_path)
+						print("deleted pipeline file '"..pipeline_file_path.."'")
+					end
 				end)
 		end,
 	},
