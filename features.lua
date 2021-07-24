@@ -134,12 +134,12 @@ end
 local step_invoke_command_raw = function(step_name, at_path, command, relative_step_dir_path)
 	local step_script_path = get_relative_step_script_path(step_name)
 	local env_override_table = get_benmet_lua_env_override_table_by_relative_step_dir_path()[relative_step_dir_path]
-	local success, exit_type, return_status, program_output
+	local success, exit_type, return_status, program_output, error_details
 	if util.string_ends_with(step_script_path, ".lua") then
 		if not _G.benmet_launch_steps_as_child_processes then
 			local prev_lua_path = util.getenv("LUA_PATH")
 			util.setenv("LUA_PATH", env_override_table.LUA_PATH)
-			success, exit_type, return_status, program_output = util.execute_lua_script_as_if_program(relative_path_prefix.."steps/"..step_name.."/"..step_script_path, {command}, at_path)
+			success, exit_type, return_status, program_output, error_details = util.execute_lua_script_as_if_program(relative_path_prefix.."steps/"..step_name.."/"..step_script_path, {command}, at_path)
 			util.setenv("LUA_PATH", prev_lua_path)
 		else
 			success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.in_quotes(util.get_lua_program()).." "..util.in_quotes(relative_step_dir_path..step_script_path).." "..command, env_override_table, at_path)
@@ -147,7 +147,7 @@ local step_invoke_command_raw = function(step_name, at_path, command, relative_s
 	else
 		success, exit_type, return_status, program_output = util.execute_command_with_env_override_at(util.in_quotes(relative_step_dir_path..step_script_path).." "..command, env_override_table, at_path)
 	end
-	return success and program_output, return_status
+	return success and program_output, return_status, error_details
 end
 
 -- directly invoke command 'inputs' of the given step
@@ -761,9 +761,11 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 			end
 			
 			-- try executing the build step
-			local output, return_status = features.step_invoke_command(step_name, command, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision)
+			local output, return_status, error_details = features.step_invoke_command(step_name, command, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision)
 			if not output then
-				delayed_error_msg = "failed to execute step '"..step_name.."' in pipeline; exit code: "..tostring(return_status)
+				delayed_error_msg = "failed to execute step '"..step_name.."' in pipeline; "
+					.. (error_details and "error: "..error_details
+							or "exit code: "..tostring(return_status))
 				break
 			end
 			
