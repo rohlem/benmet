@@ -751,7 +751,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 				or status == 'startable' and 'start'
 			if not command then -- step run is not executable
 				if status == 'pending' then
-					print("step '"..step_name.."' is waiting on asynchronous execution") -- debug print, TODO: adapt/remove
+					print("step '"..step_name.."' is waiting for asynchronous execution") -- debug print, TODO: adapt/remove
 					last_step_name, last_step_status, last_step_busy = step_name, status, true
 					break
 				else
@@ -771,7 +771,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 			status = features.step_query_status(step_name, step_run_path)
 			if status ~= 'finished' then
 				if status == 'pending' or status == 'continuable' then -- if it's continuable we could loop executing 'continue', but that means unbounded complexity, we might get stuck if the script is faulty
-					print("step '"..step_name.."' suspended itself, waiting on asynchronous execution")
+					print("step '"..step_name.."' suspended itself, waiting for asynchronous execution")
 					last_step_name, last_step_status = step_name, status
 					break
 				elseif status == 'startable' then
