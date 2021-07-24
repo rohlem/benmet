@@ -825,10 +825,10 @@ local program_command_structures = {
 			
 			-- report results back to the user
 			local header_message_suffix_by_resumption_status = {
-				startable = "seem to have aborted execution (reported status 'startable')",
-				pending = "were still pending and could not be resumed",
-				continuable = "were successfully resumed and resuspended execution",
-				finished = "were successfully resumed and finished execution",
+				startable = " seem to have aborted execution (reported status 'startable')",
+				pending = " were still pending and could not be resumed",
+				continuable = " were successfully resumed and resuspended execution",
+				finished = " were successfully resumed and finished execution",
 			}
 			for resumption_status, by_target_step_name in pairs(resumed_pipeline_lists) do
 				
@@ -850,7 +850,7 @@ local program_command_structures = {
 					-- sort to be lexicographically ascending, then print
 					table.sort(pipeline_path_list)
 					for i = 1, #pipeline_path_list do
-						print(pipeline_path_list[i])
+						print("  "..pipeline_path_list[i])
 					end
 				end
 			end
