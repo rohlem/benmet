@@ -820,32 +820,30 @@ local program_command_structures = {
 						end
 					end
 					
-					local by_status = pipeline_poll_counts[status]
+					local by_target_step_name = pipeline_poll_counts[status]
 						or {}
-					pipeline_poll_counts[status] = by_status
-					local entry = by_status[target_step_name]
+					pipeline_poll_counts[status] = by_target_step_name
+					local entry = by_target_step_name[target_step_name]
 						or {count = 0, by_run_path = {}}
-					by_status[target_step_name] = entry
+					by_target_step_name[target_step_name] = entry
 					entry.count = entry.count + 1
 					entry.by_run_path[at_run_path] = true
 				end)
 			
-			for status, by_status in pairs(pipeline_poll_counts) do
-				for step_name, entry in pairs(by_status) do
-					print(entry.count.." pipelines '"..status.."' towards step '"..step_name.."'")
-					if step_name ~= 'finished' then -- if the pipeline isn't finished, print the run paths at which they are currently
-						-- extract the table keys into a list
-						local run_path_list = {}
-						for run_path --[[, true]] in pairs(entry.by_run_path) do
-							run_path_list[#run_path_list+1] = run_path
-						end
-						-- sort to be lexicographically ascending
-						assert(run_path_list[1] ~= false)
-						table.sort(run_path_list)
-						-- print
-						for i = 1, #run_path_list do
-							print("  "..run_path_list[i])
-						end
+			for status, by_target_step_name in pairs(pipeline_poll_counts) do
+				for target_step_name, entry in pairs(by_target_step_name) do
+					print(entry.count.." pipelines '"..status.."' towards step '"..target_step_name.."'")
+					-- extract the table keys into a list
+					local run_path_list = {}
+					for run_path --[[, true]] in pairs(entry.by_run_path) do
+						run_path_list[#run_path_list+1] = run_path
+					end
+					-- sort to be lexicographically ascending
+					assert(run_path_list[1] ~= false)
+					table.sort(run_path_list)
+					-- print
+					for i = 1, #run_path_list do
+						print("  "..run_path_list[i])
 					end
 				end
 			end
