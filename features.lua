@@ -706,7 +706,7 @@ end
 -- pipeline features: execute a pipeline by starting/continuing its steps, creating/keeping a pipeline file on suspension
 -- assumes the file at existing_pipeline_file_path already exists and has been verified to not be a hash collision if not nil
 -- if the pipeline was finished, returns true,
--- if the pipeline didn't complete, returns the name of the last processed step and the status it reported, and if it is pending whether it was resumed (wasn't already pending)
+-- if the pipeline didn't complete, returns the name of the last processed step and the status it reported, if it is pending whether it was resumed (wasn't already pending), and the pipeline file path (so that can be reported to the user)
 function features.execute_pipeline_steps(target_step_name, initial_params, existing_pipeline_file_path)
 	-- the path of the pipeline file corresponding to this pipeline instance
 	local pipeline_file_path = existing_pipeline_file_path
@@ -810,7 +810,7 @@ function features.execute_pipeline_steps(target_step_name, initial_params, exist
 	assert(not delayed_error_msg, delayed_error_msg)
 	-- otherwise report the last processed step and its last known status
 	local last_step_resumed = not last_step_busy
-	return last_step_name, last_step_status, last_step_resumed
+	return last_step_name, last_step_status, last_step_resumed, pipeline_file_path
 end
 
 
