@@ -760,13 +760,14 @@ local program_command_structures = {
 		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported), and starts a pipeline instance towards the specified target step for each one.\nA pipeline instance is started by iterating over each step in the dependency chain towards the target step. If a step is already finished, it is skipped. If an encountered step finishes synchronously (that is, it doesn't suspend by reporting status 'pending'), the next step is started.\nOn the first suspending step that is encountered, the pipeline is suspended: A `pipeline file` that saves the initial parameters used for that particular instance, extended by a 'RUN-id' property if none was yet assigned, is created. Further pipeline operations on this pipeline instance use this file to retrace the pipeline's steps.\nIf no suspending step is encountered, the pipeline is completed in full.\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
 		implementation = function(features, util, arguments, options)
 			local target_step_name = options.target[1]
-			-- launched pipeline file paths, grouped by launch status then target step name, for user-facing program output
-			local launched_pipeline_lists = {}
-			local launch_status_lookup_by_error = {}
 			
 			-- parse parameter iterators; note that option '--all-params' is not available for this command, so would have been rejected during argument parsing
 			local parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
 			assert(#parameter_iterator_constructors > 0, "no parameter files specified, no pipelines launched (pass --default-params to launch a pipeline with default parameters)")
+			
+			-- launched pipeline file paths, grouped by launch status then target step name, for user-facing program output
+			local launched_pipeline_lists = {}
+			local launch_status_lookup_by_error = {}
 			
 			-- option parsing/checking
 			local param_coercer_provider, param_coercion_warning_printer = parse_unrecognized_param_coercer_provider_and_warning_printer_from_pipeline_options(features, util, options)
