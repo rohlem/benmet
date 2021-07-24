@@ -796,6 +796,7 @@ local program_command_structures = {
 						print("Error resuming pipeline: "..err_or_finished_or_last_step)
 					end
 					
+					-- assign the pipeline to a collection according to its status
 					local resumption_status_error
 					if not successful then
 						resumption_status_error = resumption_status_lookup_by_error[err_or_finished_or_last_step]
@@ -815,7 +816,7 @@ local program_command_structures = {
 					list[#list+1] = existing_pipeline_file_path
 				end)
 			
-			-- count them the other way around too for more immediately informative output message
+			-- count pipelines the other way around too for more immediately informative output message
 			local status_counts_by_target_step_name = {}
 			for resumption_status, by_target_step_name in pairs(resumed_pipeline_lists) do
 				for target_step_name, pipeline_path_list in pairs(by_target_step_name) do
@@ -825,7 +826,7 @@ local program_command_structures = {
 			
 			-- report results back to the user
 			local header_message_suffix_by_resumption_status = {
-				startable = " seem to have aborted execution (reported status 'startable')",
+				startable = " were resumed but seem to have aborted execution (reported status 'startable')",
 				pending = " were still pending and could not be resumed",
 				continuable = " were successfully resumed and resuspended execution",
 				finished = " were successfully resumed and finished execution",
@@ -836,7 +837,7 @@ local program_command_structures = {
 				if type(resumption_status) == 'table' then
 					header_message_suffix = " failed being resumed with the following error: "..tostring(resumption_status[2])
 					if resumption_status[1] ~= 'resumption-error' then
-						header_message_suffix = header_message_suffix.."\nADDITIONAL ERROR IN POLLING LOGIC: unexpected first element in resumption status tuple (unreachable)"
+						header_message_suffix = header_message_suffix.."\nADDITIONAL ERROR IN COLLECTION LOGIC: unexpected first element '"..tostring(launch_status[1]).."' in resumption status tuple (unreachable)"
 					end
 				else
 					resumption_status = tostring(resumption_status)
