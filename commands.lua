@@ -729,6 +729,9 @@ local program_command_structures = {
 		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported), and starts a pipeline instance towards the specified target step for each one.\nA pipeline instance is started by iterating over each step in the dependency chain towards the target step. If a step is already finished, it is skipped. If an encountered step finishes synchronously (that is, it doesn't suspend by reporting status 'pending'), the next step is started.\nOn the first suspending step that is encountered, the pipeline is suspended: A `pipeline file` that saves the initial parameters used for that particular instance, extended by a 'RUN-id' property if none was yet assigned, is created. Further pipeline operations on this pipeline instance use this file to retrace the pipeline's steps.\nIf no suspending step is encountered, the pipeline is completed in full.\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
 		implementation = function(features, util, arguments, options)
 			local target_step_name = options.target[1]
+			-- launched pipeline file paths, grouped by launch status then target step name, for user-facing program output
+			local launched_pipeline_lists = {}
+			local launch_status_lookup_by_error = {}
 			
 			-- parse parameter iterators; note that option '--all-params' is not available for this command, so would have been rejected during argument parsing
 			local parameter_iterator_constructors, parameter_iterator_warning_printer = parse_param_iterator_constructors_and_warning_printers_from_pipeline_arguments_options(features, util, arguments, options)
@@ -739,17 +742,36 @@ local program_command_structures = {
 			
 			-- actual work
 			
-			local parsed_anything
-			local launched_anything
 			local launch_pipeline = function(target_step_name, initial_params)
-					launched_anything = true
-					local successful, err = xpcall(features.execute_pipeline_steps, debug.traceback, target_step_name, initial_params)
+					local successful, err_or_finished_or_last_step, last_step_status, was_resumed, pipeline_file_path = xpcall(features.execute_pipeline_steps, debug.traceback, target_step_name, initial_params)
 					if not successful then
 						print("Error launching pipeline: "..err)
 					end
+					
+					-- assign the pipeline to a collection according to its status
+					local launch_status_error
+					if not successful then
+						launch_status_error = launch_status_lookup_by_error[err_or_finished_or_last_step]
+							or {'launch-error', err_or_finished_or_last_step}
+						launch_status_lookup_by_error[err_or_finished_or_last_step] = launch_status_error
+					end
+					local launch_status = launch_status_error
+						or err_or_finished_or_last_step == nil and 'launch-skipped-already-exists'
+						or err_or_finished_or_last_step == true and 'finished'
+						or (not was_resumed) and 'launch-hit-pending'
+						or last_step_status == 'continuable' and 'pending' -- we handle suspension the same, no matter if it immediately finished or not
+						or last_step_status
+					local by_target_step_name = launched_pipeline_lists[launch_status]
+						or {}
+					launched_pipeline_lists[launch_status] = by_target_step_name
+					local list = by_target_step_name[target_step_name]
+						or {}
+					by_target_step_name[target_step_name] = list
+					list[#list+1] = pipeline_file_path
 				end
 			
 			local param_coercer = param_coercer_provider(target_step_name)
+			local parsed_anything
 			-- iterate over parameter iterators
 			for i = 1, #parameter_iterator_constructors do
 				local parameter_iterator_constructor = parameter_iterator_constructors[i]
@@ -760,6 +782,52 @@ local program_command_structures = {
 					local coerced_params = param_coercer(initial_params)
 					if coerced_params then
 						launch_pipeline(target_step_name, coerced_params)
+					end
+				end
+			end
+			
+			-- count pipelines the other way around for more immediately informative output message
+			local launched_anything
+			local status_counts_by_target_step_name = {}
+			for launch_status, by_target_step_name in pairs(launched_pipeline_lists) do
+				for target_step_name, pipeline_path_list in pairs(by_target_step_name) do
+					status_counts_by_target_step_name[target_step_name] = (status_counts_by_target_step_name[target_step_name] or 0) + 1
+				end
+				
+				local status_implies_launch = launch_status ~= 'launch-skipped-already-exists'
+				launched_anything = launched_anything or status_implies_launch -- I think this is a sensible criteria for the final output message, but maybe not for the return status? Or we could provide a flag for reducing expectations.
+			end
+			
+			
+			-- report results back to the user
+			local header_message_suffix_by_launch_status = {
+				startable = " were launched but seem to have aborted execution (reported status 'startable')",
+				pending = " were successfully launched and suspended execution",
+				finished = " were successfully launched and finished execution",
+				['launch-skipped-already-exists'] = " already existed (with same parameters, including id) and were therefore not launched",
+				['launch-hit-pending'] = " were launched but require a step that is still pending",
+			}
+			for launch_status, by_target_step_name in pairs(launched_pipeline_lists) do
+				
+				local header_message_suffix
+				if type(launch_status) == 'table' then
+					header_message_suffix = " failed being launched with the following error: "..tostring(launch_status[2])
+					if launch_status[1] ~= 'launch-error' then
+						header_message_suffix = header_message_suffix.."\nADDITIONAL ERROR IN COLLECTION LOGIC: unexpected first element '"..tostring(launch_status[1]).."' in launch status tuple (unreachable)"
+					end
+				else
+					launch_status = tostring(launch_status)
+					header_message_suffix = header_message_suffix_by_launch_status[launch_status]
+						or " were launched and suspended execution, reporting unrecognized status '"..launch_status.."'"
+				end
+				
+				for target_step_name, pipeline_path_list in pairs(by_target_step_name) do
+					local only_status_this_target = status_counts_by_target_step_name[target_step_name] == 1
+					print((only_status_this_target and "all " or "")..#pipeline_path_list.." pipelines towards step '"..target_step_name.."'"..header_message_suffix)
+					-- sort to be lexicographically ascending, then print
+					table.sort(pipeline_path_list)
+					for i = 1, #pipeline_path_list do
+						print("  "..pipeline_path_list[i])
 					end
 				end
 			end
