@@ -144,12 +144,14 @@ local default_async_step_bookkeeping_query_initial_status = function(config, boo
 	while true do
 		local current_stage = config.standard_stages[bookkeeping.current_stage_index]
 		if bookkeeping.current_stage_index < 1 then
-			status = 'startable'
 			bookkeeping.current_stage_index = 1
+			status = 'startable'
+			break
 		elseif bookkeeping.current_stage_index == last_stage_index and current_stage.is_final_synchronous then
-			-- continue with status == nil
+			-- fallthrough, continue the loop with status == nil
 		elseif util.file_exists(assert(current_stage.completed_sentinel_file_path)) then
 			status = 'continuable'
+			break
 		elseif util.file_exists(assert(current_stage.pending_sentinel_file_path)) then
 			local test_pending_for_error_logic = current_stage.test_pending_for_error_logic
 			if test_pending_for_error_logic then
@@ -158,17 +160,20 @@ local default_async_step_bookkeeping_query_initial_status = function(config, boo
 					-- maybe we just missed the stage completing => re-check if it's completed now
 					if util.file_exists(assert(current_stage.completed_sentinel_file_path)) then
 						status = 'continuable'
+						break
 					else
 						status = "error: "..tostring(error_condition)
+						break
 					end
 				else
 					status = 'pending'
+					break
 				end
 			else
 				status = 'pending'
+				break
 			end
 		end
-		if status then break end
 		bookkeeping.current_stage_index = bookkeeping.current_stage_index - 1
 	end
 	
