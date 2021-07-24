@@ -784,8 +784,76 @@ local program_command_structures = {
 		options = pipeline_operation_structure_options,
 		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, resumes all conforming previously-suspended pipeline instances towards the specified target step that are currently ready.\nA pipeline instance is resumed by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. If this step run still reports status 'pending', it is not yet ready, and so the pipeline remains suspended.\nIf it now reports the status 'continuable', it is continued, and the dependency chain is subsequently followed and continued, as detailed for `pipelines.launch`. On the first suspending step that is encountered, this is stopped and the pipeline remains suspended. If no such step is encountered, the pipeline instance is completed and its corresponding `pipeline file` is deleted.\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
 		implementation = function(features, util, arguments, options)
-			return pipeline_collective_by_individuals_command(features, util, arguments, options, "resume",
-				features.execute_pipeline_steps--[[(target_step_name, initial_params, existing_pipeline_file_path)]])
+			-- selected pipeline file paths, grouped by resumption status then target step name, for user-facing program output
+			local resumed_pipeline_lists = {}
+			local resumption_status_lookup_by_error = {}
+			
+			-- perform the operation of resuming selected pipelines
+			pipeline_collective_by_individuals_command(features, util, arguments, options, "resume",
+				function(target_step_name, initial_params, existing_pipeline_file_path)
+					local successful, err_or_finished_or_last_step, last_step_status, was_resumed = xpcall(features.execute_pipeline_steps, debug.traceback, target_step_name, initial_params, existing_pipeline_file_path)
+					if not successful then
+						print("Error resuming pipeline: "..err_or_finished_or_last_step)
+					end
+					
+					local resumption_status_error
+					if not successful then
+						resumption_status_error = resumption_status_lookup_by_error[err_or_finished_or_last_step]
+							or {'resumption-error', err_or_finished_or_last_step}
+						resumption_status_lookup_by_error[err_or_finished_or_last_step] = resumption_status_error
+					end
+					local resumption_status = resumption_status_error
+						or err_or_finished_or_last_step == true and 'finished'
+						or was_resumed and 'continuable' -- we handle and report resuspension the same, no matter whether suspension finished immediately
+						or last_step_status
+					local by_target_step_name = resumed_pipeline_lists[resumption_status]
+						or {}
+					resumed_pipeline_lists[resumption_status] = by_target_step_name
+					local list = by_target_step_name[target_step_name]
+						or {}
+					by_target_step_name[target_step_name] = list
+					list[#list+1] = existing_pipeline_file_path
+				end)
+			
+			-- count them the other way around too for more immediately informative output message
+			local status_counts_by_target_step_name = {}
+			for resumption_status, by_target_step_name in pairs(resumed_pipeline_lists) do
+				for target_step_name, pipeline_path_list in pairs(by_target_step_name) do
+					status_counts_by_target_step_name[target_step_name] = (status_counts_by_target_step_name[target_step_name] or 0) + 1
+				end
+			end
+			
+			-- report results back to the user
+			local header_message_suffix_by_resumption_status = {
+				startable = "seem to have aborted execution (reported status 'startable')",
+				pending = "were still pending and could not be resumed",
+				continuable = "were successfully resumed and resuspended execution",
+				finished = "were successfully resumed and finished execution",
+			}
+			for resumption_status, by_target_step_name in pairs(resumed_pipeline_lists) do
+				
+				local header_message_suffix
+				if type(resumption_status) == 'table' then
+					header_message_suffix = " failed being resumed with the following error: "..tostring(resumption_status[2])
+					if resumption_status[1] ~= 'resumption-error' then
+						header_message_suffix = header_message_suffix.."\nADDITIONAL ERROR IN POLLING LOGIC: unexpected first element in resumption status tuple (unreachable)"
+					end
+				else
+					resumption_status = tostring(resumption_status)
+					header_message_suffix = header_message_suffix_by_resumption_status[resumption_status]
+						or " were resumed and resuspended execution, reporting unrecognized status '"..resumption_status.."'"
+				end
+				
+				for target_step_name, pipeline_path_list in pairs(by_target_step_name) do
+					local only_status_this_target = status_counts_by_target_step_name[target_step_name] == 1
+					print((only_status_this_target and "all " or "")..#pipeline_path_list.." pipelines towards step '"..target_step_name.."'"..header_message_suffix)
+					-- sort to be lexicographically ascending, then print
+					table.sort(pipeline_path_list)
+					for i = 1, #pipeline_path_list do
+						print(pipeline_path_list[i])
+					end
+				end
+			end
 		end,
 	},
 	['pipelines.poll'] = {any_args_name = 'param-files',
