@@ -816,6 +816,8 @@ end
 
 
 -- pipeline features: cancel a pipeline by cancelling its currently-suspended step run in a pipeline, optionally delete that step run's directory
+-- returns the first reported step status of the last available step of the pipeline, followed by the status reported after cancellation if cancellation was attempted,
+-- or nothing if either a step without run directory or the end of the pipeline are reached
 function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, select_continuable, discard_last_step_and_pipeline)
 	local return_status
 	local all_steps_finished
@@ -824,7 +826,7 @@ function features.cancel_pipeline_instance(target_step_name, initial_params, sel
 		assert(not error_trace, error_trace)
 		
 		if not run_dir_exists then -- this step doesn't exist yet, so nothing to cancel
-			break
+			return
 		end
 		
 		-- query what state the build step is in
@@ -839,21 +841,25 @@ function features.cancel_pipeline_instance(target_step_name, initial_params, sel
 					or select_continuable and was_continuable
 				if selected then
 					features.step_invoke_command(step_name, 'cancel', active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision)
-					status = features.step_query_status(step_name, step_run_path)
-					if status ~= 'startable' then
-						print("build step '"..step_name.."' unexpectedly returned status '"..status.."' after cancellation"..(discard_last_step_and_pipeline and ", not deleting run directory in pipeline discard" or ""))
-						break
+					local new_status = features.step_query_status(step_name, step_run_path)
+					if new_status ~= 'startable' then
+						print("build step '"..step_name.."' unexpectedly returned status '"..new_status.."' after cancellation"..(discard_last_step_and_pipeline and ", not deleting run directory in pipeline discard" or ""))
+						return new_status
 					end
 					if discard_last_step_and_pipeline then
 						util.remove_directory(step_run_path)
 					end
+					return status, new_status
 				end
+				return status
 			elseif status ~= 'startable' then
 				error("unexpected build status '"..status.."' in step '"..step_name.."', don't know how to cancel pipeline towards step '"..target_step_name.."'")
+			else
+				return status -- only status 'startable' should reach here
 			end
-			break
 		end
 	end
+	return
 end
 
 
