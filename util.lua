@@ -830,7 +830,14 @@ util.debug_detail_level = 0
 				end, function() return cached_lua_program end,
 		})
 		
+		-- scripts loaded from files via loadfile, additionally wrapped in select(2, assert(xpcall(_, debug_traceback, ...))),
+		-- associated by keys from indirection_layer.path_to_cache_key of the script file path
 		local loadfile_cache = {}
+		-- execute the lua script located at path as if it were launched as a subprocess
+		-- with args_list as unquoted arguments, at at_relative_path relative to the script's path,
+		-- with environment variables overrides provided in new_os_env_override_table;
+		-- returns the same values as the util.execute_command-family of functions:
+		-- success (boolean), exit type (always 'exit'), return status (0 if successful, 1 otherwise), program output (string)
 		function util.execute_lua_script_as_if_program(path, args_list, at_relative_path, new_os_env_override_table)
 			assert(path, "no lua script path given to util.execute_lua_script_as_if_program")
 			assert(not (at_relative_path and _G.benmet_disable_indirection_layer))
