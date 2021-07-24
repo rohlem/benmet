@@ -818,7 +818,7 @@ end
 -- pipeline features: cancel a pipeline by cancelling its currently-suspended step run in a pipeline, optionally delete that step run's directory
 -- returns the first reported step status of the last available step of the pipeline, followed by the status reported after cancellation if cancellation was attempted,
 -- or nothing if either a step without run directory or the end of the pipeline are reached
-function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, select_continuable, discard_last_step_and_pipeline)
+function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, select_continuable, discard_last_step_run_dir)
 	local return_status
 	local all_steps_finished
 	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
@@ -843,10 +843,10 @@ function features.cancel_pipeline_instance(target_step_name, initial_params, sel
 					features.step_invoke_command(step_name, 'cancel', active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision)
 					local new_status = features.step_query_status(step_name, step_run_path)
 					if new_status ~= 'startable' then
-						print("build step '"..step_name.."' unexpectedly returned status '"..new_status.."' after cancellation"..(discard_last_step_and_pipeline and ", not deleting run directory in pipeline discard" or ""))
-						return new_status
+						print("build step '"..step_name.."' unexpectedly returned status '"..new_status.."' after cancellation"..(discard_last_step_run_dir and ", not deleting run directory" or ""))
+						return status, new_status
 					end
-					if discard_last_step_and_pipeline then
+					if discard_last_step_run_dir then
 						util.remove_directory(step_run_path)
 					end
 					return status, new_status
