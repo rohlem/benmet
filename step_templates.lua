@@ -378,7 +378,14 @@ function templates.run_standard_async_step(config, command, --[[further cmd_args
 			stages = stages or {}
 			config.standard_stages = stages
 		else
-			final_stage_is_synchronous = stages[#stages].is_final_synchronous
+			for i = 1, #stages - 1 do
+				assert(not stages[i].is_final_synchronous, "invalid configuration: stage #"..i.." is marked final synchronous, but is not the final stage")
+			end
+			local final_explicit_stage = stages[#stages]
+			if final_explicit_stage.is_final_synchronous then
+				final_stage_is_synchronous = true
+				assert(not final_explicit_stage.ready_check_logic, "invalid configuration: last stage #"..#stages.." marked final synchronous, but also provided .ready_check_logic which would never be called")
+			end
 		end
 		if not final_stage_is_synchronous then
 			stages[#stages+1] = {
