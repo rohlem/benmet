@@ -815,7 +815,7 @@ end
 
 
 
--- pipeline features: cancel a pipeline by cancelling its currently-suspended step run in a pipeline, optionally delete that step run's directory
+-- pipeline features: cancel a pipeline by canceling its currently-suspended step run in a pipeline, optionally delete that step run's directory
 -- returns the first reported step status of the last available step of the pipeline, followed by the status reported after cancellation if cancellation was attempted,
 -- or nothing if either a step without run directory or the end of the pipeline are reached
 function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, select_continuable, discard_last_step_run_dir)
