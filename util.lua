@@ -517,7 +517,7 @@ util.debug_detail_level = 0
 		-- a JSON array (starting with "[") containing objects holding parameter coordinates,
 		-- or our line-based format, where entries are separated by lines starting with "="
 		function util.new_compat_deserialize_multientry(s)
-			if string.match(s, "^%s*[") then -- looks like a JSON array
+			if string.match(s, "^%s*%[") then -- looks like a JSON array
 				-- decode the array
 				local successful, parsed = pcall(json_decode, s)
 				if not successful then
