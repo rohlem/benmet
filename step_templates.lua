@@ -311,8 +311,13 @@ default_async_commands = util.table_patch(default_commands, {
 		end
 		util.remove_file_if_exists("./preliminary_params_out.txt")
 		for i = stage_index, 1, -1 do
-			util.remove_file_if_exists(config.standard_stages[i].completed_sentinel_file_path)
-			util.remove_file_if_exists(config.standard_stages[i].pending_sentinel_file_path)
+			local stage = config.standard_stages[i]
+			if stage.completed_sentinel_file_path then
+				util.remove_file_if_exists(stage.completed_sentinel_file_path)
+			end
+			if stage.pending_sentinel_file_path then
+				util.remove_file_if_exists(stage.pending_sentinel_file_path)
+			end
 		end
 		return 0
 	end,
