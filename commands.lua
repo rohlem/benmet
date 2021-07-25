@@ -550,7 +550,12 @@ local pipelines_cancel_command_impl = function(features, util, arguments, option
 		local select_errors = (include_errors or only_errors)
 		local select_continuable = (include_continuable or only_continuable)
 		
-		return pipeline_collective_by_individuals_command(features, util, arguments, options, "discard",
+		-- canceled pipeline file paths, grouped by launch status then target step name, for user-facing program output
+		local canceled_pipeline_lists = {}
+		local cancellation_status_lookup_by_error = {}
+		local cancellation_status_lookup_by_unexpected_status = {}
+		
+		pipeline_collective_by_individuals_command(features, util, arguments, options, discard_last_step_run_dir_and_pipeline_file and "discard" or "cancel",
 			function(target_step_name, initial_params, existing_pipeline_file_path)
 				local successful, err_or_initial_status, new_status = xpcall(features.cancel_pipeline_instance, debug.traceback, target_step_name, initial_params, select_pending, select_errors, select_continuable, discard_last_step_run_dir_and_pipeline_file)
 				if not successful then
@@ -560,7 +565,77 @@ local pipelines_cancel_command_impl = function(features, util, arguments, option
 					util.remove_file(existing_pipeline_file_path)
 					print("deleted pipeline file '"..existing_pipeline_file_path.."'")
 				end
+				
+				-- assign the pipeline to a collection according to its status
+				local cancellation_status_error
+				if not successful then
+					cancellation_status_error = cancellation_status_lookup_by_error[err_or_initial_status]
+						or {'cancellation-error', err_or_initial_status}
+					cancellation_status_lookup_by_error[err_or_initial_status] = cancellation_status_error
+				end
+				local cancellation_status = cancellation_status_error
+				if not cancellation_status and new_status then
+					cancellation_status = new_status == 'startable' and 'cancellation-success'
+					if not cancellation_status then
+						cancellation_status = cancellation_status_lookup_by_unexpected_status[new_status]
+							or {'cancellation-result-unexpected', new_status}
+						cancellation_status_lookup_by_unexpected_status[new_status] = cancellation_status
+					end
+				end
+				cancellation_status = cancellation_status
+					or err_or_initial_status == nil and 'finished'
+					or err_or_initial_status
+				local by_target_step_name = canceled_pipeline_lists[cancellation_status]
+					or {}
+				canceled_pipeline_lists[cancellation_status] = by_target_step_name
+				local list = by_target_step_name[target_step_name]
+					or {}
+				by_target_step_name[target_step_name] = list
+				list[#list+1] = existing_pipeline_file_path
 			end)
+		
+		-- count pipelines the other way around too for more immediately informative output message
+		local status_counts_by_target_step_name = {}
+		count_number_of_key_1_by_key_2(status_counts_by_target_step_name, canceled_pipeline_lists)
+		
+		-- report results back to the user
+		-- TODO: rework to print successful messages first and error messages last (to avoid overlooking errors), and
+		-- while at it maybe also order build statuses lexicographically?
+		-- my original idea was to have separate pipeline_lists for errored/successful, but that is pretty ugly and doesn't scale well,
+		-- so probably change table to list + index lookup and upgrade all entries to tables with a "priority" field for table.sort to consider before lexicographical ordering
+		local header_message_suffix_by_cancellation_status = {
+			startable = " were already startable, no cancellation necessary",
+			continuable = " were already continuable, no cancellation necessary",
+			finished = " had already finished execution, nothing left to cancel",
+			['cancellation-success'] = " were successfully canceled",
+		}
+		for cancellation_status, by_target_step_name in pairs(canceled_pipeline_lists) do
+			
+			local header_message_suffix
+			if type(cancellation_status) == 'table' then
+				if cancellation_status[1] == 'cancellation-error' then
+					header_message_suffix = " failed being canceled with the following error: "..tostring(cancellation_status[2])
+				elseif cancellation_status[1] == 'cancellation-result-unexpected' then
+					header_message_suffix = " were canceled, but then unexpectedly reported status '"..tostring(cancellation_status[2]).."'"
+				else
+					header_message_suffix = " were canceled, new status is '"..tostring(cancellation_status[2]).."';\nERROR TRIGGERED IN COLLECTION LOGIC: unexpected first element '"..tostring(cancellation_status[1]).."' in cancellation status tuple (unreachable)"
+				end
+			else
+				cancellation_status = tostring(cancellation_status)
+				header_message_suffix = header_message_suffix_by_cancellation_status[cancellation_status]
+					or " reported status '"..cancellation_status.."' at some point; ERROR IN COLLECTION LOGIC: missing proper header message"
+			end
+			
+			for target_step_name, pipeline_path_list in pairs(by_target_step_name) do
+				local only_status_this_target = status_counts_by_target_step_name[target_step_name] == 1
+				print((only_status_this_target and "all " or "")..#pipeline_path_list.." pipelines towards step '"..target_step_name.."'"..header_message_suffix)
+				-- sort to be lexicographically ascending, then print
+				table.sort(pipeline_path_list)
+				for i = 1, #pipeline_path_list do
+					print("  "..pipeline_path_list[i])
+				end
+			end
+		end
 	end
 
 
