@@ -1291,10 +1291,32 @@ util.debug_detail_level = 0
 			return gitcommithash
 		end
 		
+		local git_supports_date_iso_strict -- nil at first, assigned true or false once we have proof
 		function util.get_commit_hash_timestamp_tags_of(repository_path, git_commit_expr)
 			git_commit_expr = util.in_quotes(git_commit_expr)
-			local successful, exit_type, return_status, program_output = util.execute_command_at("git log -n1 --date=iso-strict --decorate=short "..git_commit_expr, repository_path)
-			assert(successful, "git log failed (maybe not in a git repository?)")
+			local date_option = git_supports_date_iso_strict ~= false and "--date=iso-strict" or "--date=iso"
+			local successful, exit_type, return_status, program_output = util.execute_command_at("git log -n1 "..date_option.." --decorate=short "..git_commit_expr, repository_path)
+			if git_supports_date_iso_strict == nil then
+				if successful then
+					git_supports_date_iso_strict = true -- if it was successful, git supports the newer date format
+				else
+					-- first we assume it doesn't support the newer date format (f.e. git 1.8.3 doesn't)
+					git_supports_date_iso_strict = false
+					-- so we try again...
+					local successful_with_older_date, gitcommithash, commit_timestamp, tags = pcall(util.get_commit_hash_timestamp_tags_of, repository_path, git_commit_expr)
+					if successful_with_older_date then
+						-- no support was correct, return the results
+						return gitcommithash, commit_timestamp, tags
+					else
+						-- If it failed again, the date format wasn't the reason. Now we test that flag definitively, with the repository HEAD.
+						successful_with_older_date = util.execute_command_at("git log -n1 --date=iso-strict", repository_path)
+						git_supports_date_iso_strict = successful_with_older_date or false
+						-- fallthrough to the assert, still report the initial failure normally
+					end
+				end
+			end
+			assert(successful, "git log failed (unrecognized commit, or not in a git repository?)")
+			
 			local gitcommithash, rest_of_first_line, commit_timestamp = string.match(program_output, "^commit%s*(%S+)([^\n]*).*Date:%s*([^\n]*)")
 			
 			-- parse refs string for tags
