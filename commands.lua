@@ -525,6 +525,16 @@ local pipeline_collective_by_individuals_command = function(features, util, argu
 	end
 
 
+-- helper function that takes a doubly-nested table and counts the number of keys at the first level that contain a particular key at the second level
+local count_number_of_key_1_by_key_2 = function(counts, data)
+		for key_1, by_key_2 in pairs(data) do
+			for key_2 in pairs(by_key_2) do
+				counts[key_2] = (counts[key_2] or 0) + 1
+			end
+		end
+	end
+
+
 -- common implementation for commands 'pipelines.cancel' and 'pipelines.discard' (see their respective descriptions for details)
 local pipelines_cancel_command_impl = function(features, util, arguments, options, operation_infinitive, discard_last_step_run_dir_and_pipeline_file)
 		local include_errors = options['include-errors']
@@ -819,19 +829,15 @@ local program_command_structures = {
 			end
 			
 			-- count pipelines the other way around for more immediately informative output message
-			local launched_anything
 			local status_counts_by_target_step_name = {}
-			for launch_status, by_target_step_name in pairs(launched_pipeline_lists) do
-				for target_step_name, pipeline_path_list in pairs(by_target_step_name) do
-					status_counts_by_target_step_name[target_step_name] = (status_counts_by_target_step_name[target_step_name] or 0) + 1
-				end
-				
-				local status_implies_launch = launch_status ~= 'launch-skipped-already-exists'
-				launched_anything = launched_anything or status_implies_launch -- I think this is a sensible criteria for the final output message, but maybe not for the return status? Or we could provide a flag for reducing expectations.
-			end
+			count_number_of_key_1_by_key_2(status_counts_by_target_step_name, launched_pipeline_lists)
 			
 			
 			-- report results back to the user
+			-- TODO: rework to print successful messages first and error messages last (to avoid overlooking errors), and
+			-- while at it maybe also order build statuses lexicographically?
+			-- my original idea was to have separate pipeline_lists for errored/successful, but that is pretty ugly and doesn't scale well,
+			-- so probably change table to list + index lookup and upgrade all entries to tables with a "priority" field for table.sort to consider before lexicographical ordering
 			local header_message_suffix_by_launch_status = {
 				startable = " were launched but seem to have aborted execution (reported status 'startable')",
 				pending = " were successfully launched and suspended execution",
@@ -870,12 +876,17 @@ local program_command_structures = {
 			-- print a warning message for encountered unrecognized parameters in combinations, if no fallback flag was provided
 			param_coercion_warning_printer()
 			
+			local launched_anything
+			for launch_status, by_target_step_name in pairs(launched_pipeline_lists) do
+				local status_implies_launch = launch_status ~= 'launch-skipped-already-exists'
+				launched_anything = launched_anything or status_implies_launch -- I think this is a sensible criteria for the final output message, but maybe not for the return status? Or we could provide a flag for reducing expectations.
+			end
 			if not launched_anything then
 				print(
 					(parsed_anything and "" or "no parameters could be parsed, ")
 					.. "no pipelines were launched"
 				)
-				return 1
+				return parsed_anything and 1 or 2
 			end
 		end,
 	},
@@ -918,13 +929,13 @@ local program_command_structures = {
 			
 			-- count pipelines the other way around too for more immediately informative output message
 			local status_counts_by_target_step_name = {}
-			for resumption_status, by_target_step_name in pairs(resumed_pipeline_lists) do
-				for target_step_name, pipeline_path_list in pairs(by_target_step_name) do
-					status_counts_by_target_step_name[target_step_name] = (status_counts_by_target_step_name[target_step_name] or 0) + 1
-				end
-			end
+			count_number_of_key_1_by_key_2(status_counts_by_target_step_name, resumed_pipeline_lists)
 			
 			-- report results back to the user
+			-- TODO: rework to print successful messages first and error messages last (to avoid overlooking errors), and
+			-- while at it maybe also order build statuses lexicographically?
+			-- my original idea was to have separate pipeline_lists for errored/successful, but that is pretty ugly and doesn't scale well,
+			-- so probably change table to list + index lookup and upgrade all entries to tables with a "priority" field for table.sort to consider before lexicographical ordering
 			local header_message_suffix_by_resumption_status = {
 				startable = " were resumed but seem to have aborted execution (reported status 'startable')",
 				pending = " were still pending and could not be resumed",
@@ -999,6 +1010,10 @@ local program_command_structures = {
 					entry.by_run_path[at_run_path] = true
 				end)
 			
+			-- TODO: rework to print successful statuses first and error messages last (to avoid overlooking errors), and
+			-- while at it maybe also order build statuses lexicographically?
+			-- my original idea was to have separate lists for errored/successful, but that is pretty ugly and doesn't scale well,
+			-- so probably change table to list + index lookup and upgrade all entries to tables with a "priority" field for table.sort to consider before lexicographical ordering
 			for status, by_target_step_name in pairs(pipeline_poll_counts) do
 				for target_step_name, entry in pairs(by_target_step_name) do
 					print(entry.count.." pipelines '"..status.."' towards step '"..target_step_name.."'")
