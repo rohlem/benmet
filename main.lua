@@ -27,7 +27,7 @@ do -- set up package.path for importing other benmet code via `require`
 	
 	package.path = benmet_package_path_prefix..package.path
 	
-	_G.benmet_get_main_script_dir_path = function() return main_script_dir_path end -- used by benmet.util in import error messages and to add the lunajson package path
+	_G.benmet_get_main_script_dir_path = function() return main_script_dir_path end -- used by benmet.util in import error messages
 	
 	local absolute_package_path_entries_ensured
 	-- ensures that the package.path entries based on our main script dir path are absolute,
