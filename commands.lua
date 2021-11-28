@@ -1124,7 +1124,7 @@ local program_command_structures = {
 		end,
 	},
 	['commit-ordering'] = {any_args_min = 1, any_args_name = 'commit-source', -- TODO(maybe?): add a flag to do this automatically in a default output file during pipeline execution (.launch/.resume)?
-		summary = "export commit orderings to a text file",
+		summary = "export commit orderings to a JSON file",
 		options = {
 			['repository'] = {required = true, description = "the repository of which to order commits"},
 			['max-strands'] = {description = "the maximum number of combinatorial strands before aborting"},
