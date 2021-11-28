@@ -1317,7 +1317,7 @@ util.debug_detail_level = 0
 			end
 			assert(successful, "git log failed (unrecognized commit, or not in a git repository?)")
 			
-			local gitcommithash, rest_of_first_line, commit_timestamp = string.match(program_output, "^commit%s*(%S+)([^\n]*).*Date:%s*([^\n]*)")
+			local gitcommithash, rest_of_first_line, commit_timestamp = string.match(program_output, "\n?commit%s*(%S+)([^\n]*).*Date:%s*([^\n]*)")
 			
 			-- parse refs string for tags
 			local tags = {}
