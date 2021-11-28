@@ -678,7 +678,6 @@ local program_command_structures = {
 			else
 				print("successfully cloned modules: "..table.concat(cloned_list, ", "))
 			end
-			--assert(util.execute_command_at("git clone "..util.in_quotes(repo_path).." --no-checkout && cd "..util.in_quotes(repo_name).." && git checkout "..util.in_quotes(commit_hash).." --detach", step_run_repos))
 		end,
 	},
 	['add-repo'] = {any_args_min = 1, any_args_max = 1, any_args_name = 'git-url',
