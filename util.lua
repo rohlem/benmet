@@ -499,6 +499,10 @@ util.debug_detail_level = 0
 					error(failure_prefix..tostring(parsed))
 				end
 				return ensure_strings_in_json_param_entry(parsed)
+			elseif string.match(s, "^%s*%[") then -- looks like a JSON array, which is an error (we only expected a single coordinate of parameters)
+				failure_prefix = failure_prefix ~= "" and failure_prefix
+					or "error trying to parse params: "
+				error(failure_prefix.."expected single JSON object, found JSON array")
 			else -- parse as our line-based format
 				local t = {}
 				for k, v in string.gmatch(s, "([^%s=]*)=([^\n]*)") do
@@ -529,6 +533,10 @@ util.debug_detail_level = 0
 					entry[i] = ensure_strings_in_json_param_entry(parsed[i])
 				end
 				return entries
+			elseif string.match(s, "^%s*{") then -- looks like a JSON object
+				failure_prefix = failure_prefix ~= "" and failure_prefix
+					or "error trying to parse multi-entry params: "
+				error(failure_prefix.."expected JSON array, found single JSON object")
 			else -- parse our line-based format
 				local entries = {}
 				local t
@@ -598,6 +606,10 @@ util.debug_detail_level = 0
 					end
 				end
 				return entries, key_index_lookup
+			elseif string.match(s, "^%s*%[") then -- looks like a JSON array, which is an error (we only expected a single coordinate of parameters)
+				failure_prefix = failure_prefix ~= "" and failure_prefix
+					or "error trying to parse params: "
+				error(failure_prefix.."expected single JSON object, found JSON array")
 			else -- parse our line-based format
 				for k, v in string.gmatch(s, "([^%s=]*)=([^\n]*)") do
 					if k ~= "" then
