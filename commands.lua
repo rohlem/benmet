@@ -66,7 +66,7 @@ local pipeline_operation_structure_options = {
 		['ignore-unrecognized-params'] = option_pipeline_ignore_unrecognized_params,
 		['accept-unrecognized-params'] = option_pipeline_accept_unrecognized_params,
 	}
-local pipeline_operation_structure_options_with_error_state_handling = {
+local pipeline_operation_structure_base_options_with_error_state_handling = {
 		['target'] = option_pipeline_target,
 		['all-targets'] = option_pipeline_all_targets,
 		['default-params'] = option_pipeline_default_params,
@@ -82,10 +82,29 @@ local pipeline_operation_structure_options_with_error_state_handling = {
 		['ignore-unrecognized-params'] = option_pipeline_ignore_unrecognized_params,
 		['accept-unrecognized-params'] = option_pipeline_accept_unrecognized_params,
 	}
+local pipeline_operation_structure_options_with_error_state_handling_allowing_startable_selection = {
+		['target'] = option_pipeline_target,
+		['all-targets'] = option_pipeline_all_targets,
+		['default-params'] = option_pipeline_default_params,
+		['params-from-stdin'] = option_pipeline_params_from_stdin,
+		['all-params'] = option_pipeline_all_params,
+		['all'] = option_pipeline_all,
+		['include-errors'] = {is_flag = true, description = "also select pipelines with error status"},
+		['only-errors'] = {is_flag = true, description = "only select pipelines with error status"},
+		['include-continuable'] = {is_flag = true, description = "also select pipelines with status 'continuable'"},
+		['only-continuable'] = {is_flag = true, description = "only select pipelines with status 'continuable'"},
+		['include-startable'] = {is_flag = true, description = "also select pipelines with status 'startable'"},
+		['only-startable'] = {is_flag = true, description = "only select pipelines with status 'startable'"},
+		['ignore-param'] = option_pipeline_ignore_param,
+		['accept-param'] = option_pipeline_accept_param,
+		['ignore-unrecognized-params'] = option_pipeline_ignore_unrecognized_params,
+		['accept-unrecognized-params'] = option_pipeline_accept_unrecognized_params,
+	}
 
 
--- FIXME: Do we want this? If so, where?
 local dependencies_txt_description = "This file contains lines of the syntax '<dependers>: <dependees>', where both sides are space-separated, possibly empty lists of step names. Both dependers and dependees may appear in multiple lines. All steps must appear as dependers at least once."
+local pipelines_param_construction_note = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries, also multi-value parameter files of legacy line-based format are supported)."
+local pipelines_param_rejection_note = "By default, parameter combinations are rejected if they contain parameters not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'."
 
 
 
@@ -534,19 +553,30 @@ local count_number_of_key_1_by_key_2 = function(counts, data)
 
 
 -- common implementation for commands 'pipelines.cancel' and 'pipelines.discard' (see their respective descriptions for details)
-local pipelines_cancel_command_impl = function(features, util, arguments, options, operation_infinitive, discard_last_step_run_dir_and_pipeline_file)
+local pipelines_cancel_command_impl = function(features, util, arguments, options, operation_infinitive, allow_startable, discard_last_step_run_dir_and_pipeline_file)
 		local include_errors = options['include-errors']
 		local include_continuable = options['include-continuable']
+		local include_startable = allow_startable and options['include-startable']
 		local only_errors = options['only-errors']
 		local only_continuable = options['only-continuable']
+		local only_startable = allow_startable and options['only-startable']
 		
 		assert(not (only_errors and only_continuable), "flags '--only-errors' and '--only-continuable' are mutually exclusive")
 		assert(not (only_errors and include_continuable), "flag '--only-errors' is incompatible with flag '--include-continuable'")
 		assert(not (only_continuable and include_errors), "flag '--only-continuable' is incompatible with flag '--include-errors'")
+		if allow_startable then
+			assert(not (only_errors and only_startable), "flags '--only-errors' and '--only-startable' are mutually exclusive")
+			assert(not (only_continuable and only_startable), "flags '--only-continuable' and '--only-startable' are mutually exclusive")
+			assert(not (only_errors and include_startable), "flag '--only-errors' is incompatible with flag '--include-startable'")
+			assert(not (only_continuable and include_startable), "flag '--only-continuable' is incompatible with flag '--include-startable'")
+			assert(not (only_startable and include_errors), "flag '--only-startable' is incompatible with flag '--include-errors'")
+			assert(not (only_startable and include_continuable), "flag '--only-startable' is incompatible with flag '--include-continuable'")
+		end
 		
-		local select_pending = not (only_errors or only_continuable)
+		local select_pending = not (only_errors or only_continuable or only_startable)
 		local select_errors = (include_errors or only_errors)
 		local select_continuable = (include_continuable or only_continuable)
+		local select_startable = (include_startable or only_startable)
 		
 		-- canceled pipeline file paths, grouped by launch status then target step name, for user-facing program output
 		local canceled_pipeline_lists = {}
@@ -1107,18 +1137,18 @@ local program_command_structures = {
 	},
 	['pipelines.cancel'] = {any_args_name = 'param-files',
 		summary = "cancel previously-suspended pipeline instances",
-		options = pipeline_operation_structure_options_with_error_state_handling,
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, cancels all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is canceled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is canceled, which aborts any still-running asynchronous operation and reverts the step run back to being 'startable'. Note that the affected run directories, as well as the pipeline files, are not deleted however (in contrast to 'pipelines.discard').\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
+		options = pipeline_operation_structure_base_options_with_error_state_handling,
+		description = pipelines_param_construction_note.." For each one, cancels all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is canceled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is canceled, which aborts any still-running asynchronous operation and reverts the step run back to being 'startable'. Note that the affected run directories, as well as the pipeline files, are not deleted however (in contrast to 'pipelines.discard').\n"..pipelines_param_rejection_note,
 		implementation = function(features, util, arguments, options)
-			return pipelines_cancel_command_impl(features, util, arguments, options, 'cancel', false)
+			return pipelines_cancel_command_impl(features, util, arguments, options, 'cancel', false, false)
 		end,
 	},
 	['pipelines.discard'] = {any_args_name = 'param-files',
 		summary = "discard previously-suspended pipeline instances",
-		options = pipeline_operation_structure_options_with_error_state_handling,
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, discards all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is discarded by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is canceled, which aborts any still-running asynchronous operation, and its run directory is deleted. In addition, the corresponding pipeline file is also deleted (in contrast to 'pipelines.cancel').\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
+		options = pipeline_operation_structure_options_with_error_state_handling_allowing_startable_selection,
+		description = pipelines_param_construction_note.." For each one, discards all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline instance is discarded by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is canceled, which aborts any still-running asynchronous operation, and its run directory is deleted. In addition, the corresponding pipeline file is also deleted (in contrast to 'pipelines.cancel').\n"..pipelines_param_rejection_note,
 		implementation = function(features, util, arguments, options)
-			return pipelines_cancel_command_impl(features, util, arguments, options, 'discard', true)
+			return pipelines_cancel_command_impl(features, util, arguments, options, 'discard', true, true)
 		end,
 	},
 	['commit-ordering'] = {any_args_min = 1, any_args_name = 'commit-source', -- TODO(maybe?): add a flag to do this automatically in a default output file during pipeline execution (.launch/.resume)?

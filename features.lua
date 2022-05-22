@@ -818,7 +818,7 @@ end
 -- pipeline features: cancel a pipeline by canceling its currently-suspended step run in a pipeline, optionally delete that step run's directory
 -- returns the first reported step status of the last available step of the pipeline, followed by the status reported after cancellation if cancellation was attempted,
 -- or nothing if either a step without run directory or the end of the pipeline are reached
-function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, select_continuable, discard_last_step_run_dir)
+function features.cancel_pipeline_instance(target_step_name, initial_params, select_pending, select_errors, select_continuable, select_startable, discard_last_step_run_dir)
 	local return_status
 	local all_steps_finished
 	for step_index, step_count, step_name, original_active_params, error_trace, active_params_for_step, step_run_in_params, special_params, step_run_hash_params, step_run_path, run_dir_exists, hash_collision in features.new_iterate_step_dependency_run_paths(target_step_name, initial_params) do
@@ -855,7 +855,15 @@ function features.cancel_pipeline_instance(target_step_name, initial_params, sel
 			elseif status ~= 'startable' then
 				error("unexpected build status '"..status.."' in step '"..step_name.."', don't know how to cancel pipeline towards step '"..target_step_name.."'")
 			else
-				return status -- only status 'startable' should reach here
+				assert(status == 'startable') -- only status 'startable' should reach here
+				if select_startable then
+					if discard_last_step_run_dir then
+						util.remove_directory(step_run_path)
+					else
+						print("(warning: selecting startable for cancellation, which just reverts to startable, is nonsensical)")
+					end
+				end
+				return status
 			end
 		end
 	end
