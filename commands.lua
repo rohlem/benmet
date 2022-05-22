@@ -39,7 +39,7 @@ local relative_path_prefix = _G.benmet_relative_path_prefix
 -- declaration of program argument structure
 
 -- common options
-local option_with_run_id = {description = "override the auto-generated 'RUN-id' property"}
+local option_with_run_id = {description = "override the auto-generated 'RUN-id' parameter"}
 local option_param_file = {description = "use the given parameter file as initial inputs to calculate step parameters"} --TODO (maybe): support multiple?
 
 local option_pipeline_default_params = {is_flag = true, description = "add an instance of all-defaulted parameters, as if supplying an empty parameter file"}
@@ -48,10 +48,10 @@ local option_pipeline_params_from_stdin = {is_flag = true, description = "read s
 local option_pipeline_target = {description = "the target step of the pipeline(s)"} --TODO(potentially?): could be made optional if we had a default target step in steps/index.txt
 local option_pipeline_all_targets = {is_flag = true, description = "select all pipelines regardless of targets"}
 local option_pipeline_all = {is_flag = true, shorthand_for = {'all-targets', 'all-params'}, description = "select all pipelines"}
-local option_pipeline_accept_param = {description = "accept an unused property in pipeline parameterizations", allow_multiple = true}
-local option_pipeline_ignore_param = {description = "remove a property from pipeline parameterizations", allow_multiple = true}
-local option_pipeline_accept_unrecognized_params = {description = "accept unrecognized properties in pipeline parameterizations", is_flag = true}
-local option_pipeline_ignore_unrecognized_params = {description = "remove unrecognized properties from pipeline parameterizations", is_flag = true}
+local option_pipeline_accept_param = {description = "accept an unused parameter in pipeline parameterizations", allow_multiple = true}
+local option_pipeline_ignore_param = {description = "remove a parameter from pipeline parameterizations", allow_multiple = true}
+local option_pipeline_accept_unrecognized_params = {description = "accept unrecognized parameters in pipeline parameterizations", is_flag = true}
+local option_pipeline_ignore_unrecognized_params = {description = "remove unrecognized parameters from pipeline parameterizations", is_flag = true}
 
 -- common command structure
 local pipeline_operation_structure_options = {
@@ -237,7 +237,7 @@ local parse_unrecognized_param_coercer_provider_and_warning_printer_from_pipelin
 		-- option validation
 		local default_unrecognized_param_behaviour = 'error'
 		if options['ignore-unrecognized-params'] then
-			assert(not options['accept-unrecognized-params'], "Flags '--ignore-unrecognized-params' and '--accept-unrecognized-params' are exclusive. Select handling of individual properties with options '--ignore-param' and '--accept-param'.")
+			assert(not options['accept-unrecognized-params'], "Flags '--ignore-unrecognized-params' and '--accept-unrecognized-params' are exclusive. Select handling of individual parameters with options '--ignore-param' and '--accept-param'.")
 			default_unrecognized_param_behaviour = 'ignore'
 		elseif options['accept-unrecognized-params'] then
 			default_unrecognized_param_behaviour = 'accept'
@@ -256,7 +256,7 @@ local parse_unrecognized_param_coercer_provider_and_warning_printer_from_pipelin
 				end
 			end
 			if #conflict_list > 0 then
-				error("The following properties were specified to be both ignored and accepted: "..table.concat(conflict_list, ", ").."\n Please remove the corresponding '--ignore-param' or '--accept-param' options.")
+				error("The following parameters were specified to be both ignored and accepted: "..table.concat(conflict_list, ", ").."\n Please remove the corresponding '--ignore-param' or '--accept-param' options.")
 			end
 		end
 		params_to_ignore_list = #params_to_ignore_list > 0 and params_to_ignore_list
@@ -339,7 +339,7 @@ local parse_unrecognized_param_coercer_provider_and_warning_printer_from_pipelin
 				if #unrecognized_parameters_total > 0 then
 					-- order by occurrences descendingly
 					table.sort(unrecognized_parameters_total, function(a, b) return a[2] > b[2] end)
-					print("Some parameter combinations contained properties not consumed by any of the involved steps:")
+					print("Some parameter combinations contained parameters not consumed by any of the involved steps:")
 					for i = 1, #unrecognized_parameters_total do
 						local entry = unrecognized_parameters_total[i]
 						local occurrences = entry[2]
@@ -585,7 +585,7 @@ local pipelines_cancel_command_impl = function(features, util, arguments, option
 		
 		pipeline_collective_by_individuals_command(features, util, arguments, options, discard_last_step_run_dir_and_pipeline_file and "discard" or "cancel",
 			function(target_step_name, initial_params, existing_pipeline_file_path)
-				local successful, err_or_initial_status, new_status = xpcall(features.cancel_pipeline_instance, debug.traceback, target_step_name, initial_params, select_pending, select_errors, select_continuable, discard_last_step_run_dir_and_pipeline_file)
+				local successful, err_or_initial_status, new_status = xpcall(features.cancel_pipeline_instance, debug.traceback, target_step_name, initial_params, select_pending, select_errors, select_continuable, select_startable, discard_last_step_run_dir_and_pipeline_file)
 				if not successful then
 					print("Error canceling pipeline: "..err_or_initial_status)
 				elseif discard_last_step_run_dir_and_pipeline_file then
@@ -723,11 +723,11 @@ local program_command_structures = {
 	['step.do'] = {any_args_min = 1, any_args_max = 1, any_args_name = 'step-name',
 		summary = "directly execute a particular step command",
 		options = {
-			['command'] = {required = true, description = "the command to execute"},
+			['command'] = {required = true, description = "the step command to execute"},
 			['with-run-id'] = option_with_run_id,
 			['param-file'] = option_param_file,
 		},
-		description = "This command executes the given command of the specified step. The following commands are available:\n  inputs: output the input parameters of this step (with their default values, if any)\n  status: output the run's current status (startable|pending|continuable|finished)\n  start: start a new run (status should be 'startable')\n  cancel: cancel waiting for an asynchronous operation to complete (status should be 'pending')\n  continue: continue if the last asynchronous operation has completed (status should be 'continuable')",
+		description = "This command executes the given command of the specified step. The following commands are available:\n  inputs: output the input parameters of this step (with their default values, if any)\n  status: output the run's current status (startable|pending|continuable|finished)\n  start: start a new run (status should be 'startable')\n  cancel: cancel pending asynchronous operations (status should be 'pending')\n  continue: continue if the last asynchronous operation has completed (status should be 'continuable')",
 		implementation = function(features, util, arguments, options)
 			local target_step_name = arguments[1]
 			local command = options.command[1]
@@ -869,7 +869,7 @@ local program_command_structures = {
 			['ignore-unrecognized-params'] = option_pipeline_ignore_unrecognized_params,
 			['accept-unrecognized-params'] = option_pipeline_accept_unrecognized_params,
 		},
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported), and starts a pipeline instance towards the specified target step for each one.\nA pipeline instance is started by iterating over each step in the dependency chain towards the target step. If a step is already finished, it is skipped. If an encountered step finishes synchronously (that is, it doesn't suspend by reporting status 'pending'), the next step is started.\nOn the first suspending step that is encountered, the pipeline is suspended: A `pipeline file` that saves the initial parameters used for that particular instance, extended by a 'RUN-id' property if none was yet assigned, is created. Further pipeline operations on this pipeline instance use this file to retrace the pipeline's steps.\nIf no suspending step is encountered, the pipeline is completed in full.\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
+		description = pipelines_param_construction_note.." For each one, starts a pipeline instance towards the specified target step.\nA pipeline instance is started by iterating over each step in the dependency chain towards the target step. If a step is already finished, it is skipped. If an encountered step finishes synchronously (that is, it doesn't suspend by reporting status 'pending'), the next step is started.\nOn the first suspending step that is encountered, the pipeline is suspended: A `pipeline file` that saves the initial parameters used for that particular instance, extended by a 'RUN-id' parameter if none was yet assigned, is created. Further pipeline operations on this pipeline instance use this file to retrace the pipeline's steps.\nIf no suspending step is encountered, the pipeline is completed in full.\n"..pipelines_param_rejection_note,
 		implementation = function(features, util, arguments, options)
 			local target_step_name = options.target[1]
 			
@@ -995,7 +995,7 @@ local program_command_structures = {
 	['pipelines.resume'] = {any_args_name = 'param-files',
 		summary = "resume previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options,
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, resumes all conforming previously-suspended pipeline instances towards the specified target step that are currently ready.\nA pipeline instance is resumed by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. If this step run still reports status 'pending', it is not yet ready, and so the pipeline remains suspended.\nIf it now reports the status 'continuable', it is continued, and the dependency chain is subsequently followed and continued, as detailed for `pipelines.launch`. On the first suspending step that is encountered, this is stopped and the pipeline remains suspended. If no such step is encountered, the pipeline instance is completed and its corresponding `pipeline file` is deleted.\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
+		description = pipelines_param_construction_note.." For each one, resumes all conforming previously-suspended pipeline instances towards the specified target step that are currently ready.\nA pipeline instance is resumed by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. If this step run still reports status 'pending', it is not yet ready, and so the pipeline remains suspended.\nIf it now reports the status 'continuable', it is continued, and the dependency chain is subsequently followed and continued, as detailed for `pipelines.launch`. On the first suspending step that is encountered, this is stopped and the pipeline remains suspended. If no such step is encountered, the pipeline instance is completed and its corresponding `pipeline file` is deleted.\n"..pipelines_param_rejection_note,
 		implementation = function(features, util, arguments, options)
 			-- selected pipeline file paths, grouped by resumption status then target step name, for user-facing program output
 			local resumed_pipeline_lists = {}
@@ -1073,7 +1073,7 @@ local program_command_structures = {
 	['pipelines.poll'] = {any_args_name = 'param-files',
 		summary = "poll the status of previously-suspended pipeline instances",
 		options = pipeline_operation_structure_options,
-		description = "Constructs all parameter combinations within each supplied parameter file (JSON arrays of object entries and multi-value line-based parameter files are supported). For each one, polls all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline is polled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is queried for its status, which is aggregated into a statistic over all selected pipeline instances reported back by the program.\nBy default, parameter combinations are rejected if they contain properties not consumed by any steps in the target step's dependency chain. This can be configured via options '--(ignore|accept)-param' and '--(ignore|accept)-unrecognized-params'.",
+		description = pipelines_param_construction_note.." For each one, polls all conforming previously-suspended pipeline instances towards the specified target step.\nA pipeline is polled by iterating the dependency chain towards the target step up to the step that previously suspended itself for asynchronous completion. This step run is queried for its status, which is aggregated into a statistic over all selected pipeline instances reported back by the program.\n"..pipelines_param_rejection_note,
 		implementation = function(features, util, arguments, options)
 			local pipeline_poll_counts = {}
 			
@@ -1157,11 +1157,11 @@ local program_command_structures = {
 			['repository'] = {required = true, description = "the repository of which to order commits"},
 			['max-strands'] = {description = "the maximum number of combinatorial strands before aborting"},
 			['commits'] = {forward_as_arg = true, arg_help_name = 'commits', description = "indicates the subsequent arguments are commit expressions"},
-			['from-params'] = {forward_as_arg = true, arg_help_name = 'param-files', description = "indicates subsequent arguments are parameter files holding commit expressions in 'REPO-GITCOMMITHASH-<repository-name>' properties"},
-			['from-metrics'] = {forward_as_arg = true, arg_help_name = 'metric-files', description = "indicates subsequent arguments are metric files holding commit expressions in 'REPO-GITCOMMITHASH-<repository-name>' properties"},
-			['to-file'] = {description = "The file to write output to (instead of the default path '"..relative_path_prefix.."commit-ordering-<repository-name>.txt'). Overwrites all previous contents!"},
+			['from-params'] = {forward_as_arg = true, arg_help_name = 'param-files', description = "indicates subsequent arguments are parameter files holding commit expressions in 'REPO-GITCOMMITHASH-<repository-name>' parameters"},
+			['from-metrics'] = {forward_as_arg = true, arg_help_name = 'metric-files', description = "indicates subsequent arguments are metric files holding commit expressions in 'REPO-GITCOMMITHASH-<repository-name>' parameters"},
+			['to-file'] = {description = "The file to write output to (instead of the default path '"..relative_path_prefix.."commit-ordering-<repository-name>.json'). Overwrites all previous contents!"},
 		},
-		description = "Collect commit expressions in a git repository from several sources, organize their commit hashes into totally-ordered strands and output these as specially-structured JSON, either to a supplied output file path, or to the default path '"..relative_path_prefix.."commit-ordering-<repository-name>.txt'. Note that all previous contents of the output file are overwritten.\nPositional arguments supplied after the flag '--commits' are interpreted as commit expressions, as `git log` would expect them. Examples include regular commit hashes ('c2da14d'), tagged commits of the repository ('v3.0.1'), branch names ('HEAD'), or parent expressions ('HEAD~4').\nPositional arguments supplied after the flag '--from-params' and '--from-metrics' represent file paths to files holding either JSON arrays of object entries, or line-based multi-value parameters or multi-entry metric files respectively (which are both processed identically). They are searched for properties of the name 'REPO-GITCOMMITHASH-<repository>', which can similarly hold arbitrary commit expressions.\nBecause git histories can be arbitrarily complex acyclic graphs, this operation of finding every path has an exponential complexity bound in relation to the number of commits given.\nFurthermore, performance comparisons/charting may only give useful insights within a single strand. Therefore, the default '--max-strands' value is 1, and you should carefully consider your use case before increasing it.",
+		description = "Collect commit expressions in a git repository from several sources, organize their commit hashes into totally-ordered strands and output these as specially-structured JSON, either to a supplied output file path, or to the default path '"..relative_path_prefix.."commit-ordering-<repository-name>.json'. Note that all previous contents of the output file are overwritten.\nPositional arguments supplied after the flag '--commits' are interpreted as commit expressions, as `git log` would expect them. Examples include regular commit hashes ('c2da14d'), tagged commits of the repository ('v3.0.1'), branch names ('HEAD'), or parent expressions ('HEAD~4').\nPositional arguments supplied after the flag '--from-params' and '--from-metrics' represent file paths to files holding either JSON arrays of object entries, or multi-value parameters or multi-entry metric files of legacy line-based format respectively (which are both processed identically). They are searched for parameters of the name 'REPO-GITCOMMITHASH-<repository>', which can similarly hold arbitrary commit expressions.\nBecause git histories can be arbitrarily complex acyclic graphs, this operation of finding every path has an exponential complexity bound in relation to the number of commits given.\nFurthermore, performance comparisons/charting may only give useful insights within a single strand. Therefore, the default '--max-strands' value is 1, and you should carefully consider your use case before increasing it.",
 		implementation = function(features, util, arguments, options)
 			-- assert that the repository exists
 			local repository_name = options.repository[1]
@@ -1232,9 +1232,9 @@ local program_command_structures = {
 								end
 							end
 							if no_entries_had_hash then
-								print("Warning: JSON file '"..file_path.."' contained no entries with the expected property '"..param_name.."'")
+								print("Warning: JSON file '"..file_path.."' contained no entries with the expected parameter '"..param_name.."'")
 							elseif not all_entries_had_hash then
-								print("Warning: JSON file '"..file_path.."' contained some entries without the expected property '"..param_name.."'")
+								print("Warning: JSON file '"..file_path.."' contained some entries without the expected parameter '"..param_name.."'")
 							end
 						else
 							print("Warning: failed to parse JSON array from file '"..file_path.."': "..tostring(array))
