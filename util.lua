@@ -1,3 +1,10 @@
+--[[
+This file implements all "platform-specific" logic, which is generally provided via either directly by Lua's `os` and `io` standard library modules,
+or by invoking external programs through `io.popen` specifically (comparable to C's `system` function in `stddef.h`, i.e. invokes programs as-if through the system shell).
+Used by benmet itself, but also provided to step scripts written in Lua.
+The main tested target platform is Linux, and although some efforts were also invested towards Windows support, when testing a real use case once it didn't quite work yet.
+]]
+
 -- imports from other libraries
 local md5
 local json_encode, json_decode

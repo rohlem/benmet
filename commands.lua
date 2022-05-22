@@ -19,7 +19,7 @@ These commands are returned as a table in the following form 'benmet.main' expec
 				description = <description to display in help text>,
 				required = <if the command requires this option to run; nil defaults to false>,
 				
-				is_flag = <whether the option does not take an argument (via next program argument or '='-suffix) and is instead a boolean that signals whether the option was present; incmopatible with forward_as_arg, nil defaults to false>,
+				is_flag = <whether the option does not take an argument (via next program argument or '='-suffix) and is instead a boolean that signals whether the option was present; incompatible with forward_as_arg, nil defaults to false>,
 				shorthand_for = <list of other options (must all be flags) this flag activates>,
 				
 				forward_as_arg = <boolean that indicates this option is supposed to be ignored and passed through as a normal arg, as a sort of section marker f.e. "--sources a b --targets b c"; incompatible with is_flag, nil defaults to false>,
@@ -28,7 +28,7 @@ These commands are returned as a table in the following form 'benmet.main' expec
 			},
 		}; nil defaults to no options>,
 		
-		benmet_util_skip_library_imports = <boolean that indicates whetehr benmet.util should _not try importing external dependencies (pua_lua_SHA and lunajson); nil defaults to false>,
+		benmet_util_skip_library_imports = <boolean that indicates whether benmet.util should _not try importing external dependencies (pure_lua_SHA and lunajson); nil defaults to false>,
 	},
 }
 --]]

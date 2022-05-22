@@ -1,3 +1,9 @@
+--[[
+This file was intended to be a minimal implementation for writing short, step scripts in a mostly-declarative style.
+The end result is less readable than initially hoped, containing some object-orientation spaghetti and poorly-documented quirks around builtin safety-checks. It lacks documentation overall.
+It still works, although ideally it should be replaced by a set of procedural helper functions with more obvious effects.
+--]]
+
 local util = require "benmet.util"
 
 local templates = {}

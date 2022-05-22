@@ -2,6 +2,8 @@
 This file holds logic to isolate the program state in a layer of indirection.
 Using this, Lua code can be instrumented to execute under a (simulated) different working directory, different environment variables, redirect stdout writes to a memory buffer and restore the io package and global environment table to a previous state.
 This enables us to load step scripts (if they are Lua code) and run them in the same Lua VM instance, instead of launching a new subprocess.
+The original idea was to maybe improve execution time, which ended up being rather insignificant.
+It's still enabled by default, but really only because I thought the idea was neat. See commented-out flags at the start of 'benmet.main' to disable it.
 --]]
 
 local indirection_layer = {}
