@@ -15,10 +15,11 @@ _G.benmet_relative_path_prefix = relative_path_prefix
 
 local util -- forward declaration of our import of 'benmet.util'
 
+local main_script_dir_path -- used to refer to documentation in general program description
 do -- set up package.path for importing other benmet code via `require`
 	local original_package_path = package.path
 	
-	local main_script_dir_path = string.match(arg[0], "^(.-)[^/%\\]*$")
+	main_script_dir_path = string.match(arg[0], "^(.-)[^/%\\]*$")
 	main_script_dir_path = #main_script_dir_path > 0 and main_script_dir_path or "./"
 	local benmet_path = main_script_dir_path.."../?.lua;"
 	local lunajson_path = main_script_dir_path.."../lunajson/src/?.lua;"
@@ -65,7 +66,8 @@ local program_command_structures = require 'benmet.commands'
 
 local help_list_commands = function()
 	print("usage: "..program_invocation_string_without_args.." <command> <further-args...>"
-		.."\n\n(no program description available (FIXME))"
+		.."\n\nMinimal-dependency suspendable task automation program 'benmet'. See directory '"..tostring(main_script_dir_path).."' for documentation and usage pointers."
+		.."\nInvoke with any of the commands below and the flag '--help' for more details on it:"
 		.."\n\navailable commands:")
 	local ordered_command_list = { -- ordered semantically, to be manually kept in sync with the actual command specification in 'benmet.commands'
 		'auto-setup',

@@ -1294,7 +1294,7 @@ local program_command_structures = {
 		end,
 	},
 	['metrics-to-json'] = {any_args_min = 1, any_args_name = 'metric-files',
-		summary = "convert metric files into JSON",
+		summary = "convert/combine metric files into JSON",
 		options = {
 			['to-file'] = {description = "The file to write output to (instead of the default path '"..relative_path_prefix.."exported-metrics.json'). Overwrites all previous contents!"},
 		},
@@ -1324,8 +1324,8 @@ local program_command_structures = {
 		end,
 	},
 	['test-command'] = {any_args_name = "command-fragments", allow_anything_as_args_verbatim = true,
-		summary = "test a command line invocation",
-		description = "execute the given command line invocation from Lua and report its return status",
+		summary = "test a command line invocation (via io.popen)",
+		description = "execute the given command line invocation from Lua (as child process via io.popen) and report its return status",
 		implementation = function(features, util, arguments, options)
 			local command_line = table.concat(arguments, " ")
 			util.debug_detail_level = math.max(util.debug_detail_level, 3)
