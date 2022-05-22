@@ -117,7 +117,7 @@ local help_print_options = function(option_names, from_options, infix, shorthand
 		local option_entry = from_options[option_name]
 		local description = option_entry.description
 		local description_suffix = description and " : " .. (
-				shorthands_for and description .. " (shorthand for `"..table.concat(shorthands_for[i], " ").."`)"
+				shorthands_for and description .. " (shorthand for `--"..table.concat(shorthands_for[i], " --").."`)"
 				or description
 			) or " (no option description available)"
 		print("   --"..option_name..(infix or "")..description_suffix)
@@ -165,22 +165,44 @@ local help_print_command_details = function(command_name)
 	print()
 end
 
+local usage_error = function(error_text, display_command_help)
+	local help_suffix = display_command_help and " Displaying command help:\n"
+		or " Add flag '--help' for command help."
+	print("Usage error: "..tostring(error_text)..help_suffix)
+	if display_command_help then
+		help_print_command_details(display_command_help)
+	end
+	os.exit(2)
+end
+
 
 -- command line argument parsing
 
 -- command selection
 local root_command = arg[1]
 if not root_command or root_command == '--help' then
+	-- check if maybe the next program argument is a recognized command
+	local next_argument_command_name = arg[2]
+	if next_argument_command_name then
+		if program_command_structures[arg[2]] then
+			print("Displaying help for command '"..tostring(next_argument_command_name).."', invoke with only '--help' to see program help.\n")
+			help_print_command_details(next_argument_command_name)
+			return
+		else
+			print("Unrecognized command '"..tostring(next_argument_command_name).."', displaying program help.\n")
+		end
+	end
 	help_list_commands()
+	if not root_command then os.exit(3) end
 	return
 end
 
 local selected_command_structure = program_command_structures[root_command]
 -- check the command is recognized
 if not selected_command_structure then
-	print("Unrecognized command '"..root_command.."'.")
+	print("Unrecognized command '"..root_command.."'. Displaying program help.\n")
 	help_list_commands();
-	return
+	os.exit(2)
 end
 
 local parsed_options = {}
@@ -215,10 +237,14 @@ while arg_i <= #arg do
 		
 		-- look up the option
 		local option_entry = selected_command_structure.options[option_name]
-		assert(option_entry, 'unrecognized option (FIXME)')
+		if not option_entry then
+			return usage_error("Unrecognized option '--"..tostring(option_name).."'.", root_command)
+		end
 		
 		if option_entry.forward_as_arg or option_entry.is_flag then
-			assert(not option_value, "--option=value syntax not supported for (flag/ forwarded(grouped)) option '"..option_name.."' (FIXME)")
+			if option_value then
+				return usage_error("--option=value syntax not supported for "..(option_entry.forward_as_arg and "forwarded (grouped)" or "flag").." option '"..option_name.."'.", root_command)
+			end
 			if option_entry.is_flag then
 				local shorthand_for = option_entry.shorthand_for
 				if shorthand_for then
@@ -261,8 +287,7 @@ if selected_command_structure.any_args_min then
 		local received = #parsed_args == 0 and "none"
 			or "only "..#parsed_args
 		help_print_command_details(root_command)
-		print("Expected "..expected.." "..selected_command_structure.any_args_name..arguments_multiplicity..", received "..received..".")
-		os.exit(1)
+		return usage_error("Expected "..expected.." "..selected_command_structure.any_args_name..arguments_multiplicity..", received "..received..".")
 	end
 end
 
@@ -277,8 +302,7 @@ if selected_command_structure.any_args_max then
 				or "only "..expected
 				).." "..selected_command_structure.any_args_name
 		help_print_command_details(root_command)
-		print("Expected "..expected..arguments_multiplicity..", received "..#parsed_args..".")
-		os.exit(1)
+		return usage_error("Expected "..expected..arguments_multiplicity..", received "..#parsed_args..".")
 	end
 end
 
@@ -288,11 +312,19 @@ if selected_command_structure.options then
 		local values = parsed_options[k]
 		if type(values) == 'table' then
 			local value_count = #values
-			assert(not (v.required and value_count <= 0), "missing required option '"..k.."' (FIXME)")
+			if (v.required and value_count <= 0) then
+				return usage_error("Command '"..tostring(root_command).."' is missing required option '"..k.."'.")
+			end
 			if not v.allow_multiple then
-				assert(value_count <= 1, "option '"..k.."' given multiple times (which it doesn't support)")
+				if value_count > 1 then
+					return usage_error("option '"..k.."' given multiple times (which command '"..tostring(root_command).." doesn't support).")
+				end
 			else
-				assert(v.allow_multiple == true or value_count <= v.allow_multiple, "option '"..k.."' given too many times (only "..tostring(v.allow_multiple).." occurrences supported)")
+				if not (v.allow_multiple == true or value_count <= v.allow_multiple) then
+					local occurrences_suffix = v.allow_multiple == true and ""
+						or " (only "..tostring(v.allow_multiple).." occurrences supported)"
+					return usage_error("option '"..k.."' given too many times"..occurrences_suffix..".")
+				end
 			end
 		end
 	end
@@ -300,7 +332,7 @@ end
 
 
 -- run the selected command with the parsed arguments
-local command_implementation = assert(selected_command_structure.implementation, "command has no implementatino yet (FIXME)")
+local command_implementation = assert(selected_command_structure.implementation, "command has no implementation yet (FIXME)")
 
 _G.benmet_util_skip_library_imports = selected_command_structure.benmet_util_skip_library_imports
 
