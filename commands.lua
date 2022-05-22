@@ -861,7 +861,7 @@ local program_command_structures = {
 			local launch_pipeline = function(target_step_name, initial_params)
 					local successful, err_or_finished_or_last_step, last_step_status, was_resumed, pipeline_file_path = xpcall(features.execute_pipeline_steps, debug.traceback, target_step_name, initial_params)
 					if not successful then
-						print("Error launching pipeline: "..err)
+						print("Error launching pipeline: "..err_or_finished_or_last_step)
 					end
 					
 					-- assign the pipeline to a collection according to its status
