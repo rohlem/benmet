@@ -53,8 +53,6 @@ local option_pipeline_ignore_param = {description = "remove a property from pipe
 local option_pipeline_accept_unrecognized_params = {description = "accept unrecognized properties in pipeline parameterizations", is_flag = true}
 local option_pipeline_ignore_unrecognized_params = {description = "remove unrecognized properties from pipeline parameterizations", is_flag = true}
 
-local option_to_file = {description = "The file to write output to (instead of stdout). Overwrites all previous contents!"}
-
 -- common command structure
 local pipeline_operation_structure_options = {
 		['target'] = option_pipeline_target,
@@ -1131,7 +1129,7 @@ local program_command_structures = {
 			['commits'] = {forward_as_arg = true, arg_help_name = 'commits', description = "indicates the subsequent arguments are commit expressions"},
 			['from-params'] = {forward_as_arg = true, arg_help_name = 'param-files', description = "indicates subsequent arguments are parameter files holding commit expressions in 'REPO-GITCOMMITHASH-<repository-name>' properties"},
 			['from-metrics'] = {forward_as_arg = true, arg_help_name = 'metric-files', description = "indicates subsequent arguments are metric files holding commit expressions in 'REPO-GITCOMMITHASH-<repository-name>' properties"},
-			['to-file'] = option_to_file,
+			['to-file'] = {description = "The file to write output to (instead of the default path '"..relative_path_prefix.."commit-ordering-<repository-name>.txt'). Overwrites all previous contents!"},
 		},
 		description = "Collect commit expressions in a git repository from several sources, organize their commit hashes into totally-ordered strands and output these as specially-structured JSON, either to a supplied output file path, or to the default path '"..relative_path_prefix.."commit-ordering-<repository-name>.txt'. Note that all previous contents of the output file are overwritten.\nPositional arguments supplied after the flag '--commits' are interpreted as commit expressions, as `git log` would expect them. Examples include regular commit hashes ('c2da14d'), tagged commits of the repository ('v3.0.1'), branch names ('HEAD'), or parent expressions ('HEAD~4').\nPositional arguments supplied after the flag '--from-params' and '--from-metrics' represent file paths to files holding either JSON arrays of object entries, or line-based multi-value parameters or multi-entry metric files respectively (which are both processed identically). They are searched for properties of the name 'REPO-GITCOMMITHASH-<repository>', which can similarly hold arbitrary commit expressions.\nBecause git histories can be arbitrarily complex acyclic graphs, this operation of finding every path has an exponential complexity bound in relation to the number of commits given.\nFurthermore, performance comparisons/charting may only give useful insights within a single strand. Therefore, the default '--max-strands' value is 1, and you should carefully consider your use case before increasing it.",
 		implementation = function(features, util, arguments, options)
@@ -1298,7 +1296,7 @@ local program_command_structures = {
 	['metrics-to-json'] = {any_args_min = 1, any_args_name = 'metric-files',
 		summary = "convert metric files into JSON",
 		options = {
-			['to-file'] = option_to_file,
+			['to-file'] = {description = "The file to write output to (instead of the default path '"..relative_path_prefix.."exported-metrics.json'). Overwrites all previous contents!"},
 		},
 		description = "Reads all entries from all given metric files and outputs them as a single JSON-array, either to a supplied output file path, or to the default path '"..relative_path_prefix.."exported-metrics.json'. Note that all previous contents of the output file are overwritten.",
 		implementation = function(features, util, arguments, options)
