@@ -91,6 +91,14 @@ util.debug_detail_level = 0
 			end
 			return segments
 		end
+		-- (UNUSED) returns list of non-empty substrings that do not contain delimiter_char
+		function util.string_tokenize(s, delimiter_char)
+			local tokens = {}
+			for token in string.gmatch(s, "[^%"..delimiter_char.."]+") do
+				tokens[#tokens+1] = token
+			end
+			return tokens
+		end
 		
 		util.cut_trailing_space = function(s)
 			return string.match(s, ".*%S") or ""
