@@ -106,6 +106,7 @@ util.debug_detail_level = 0
 		
 		function util.in_quotes(s)
 			if util.string_starts_with(s, '"') and util.string_ends_with(s, '"') then
+				error("string already has quotes: "..tostring(s)) -- I _think this helps code correctness - runtime crashes are better than bugs - but feel free to comment it out if your judgement differs.
 				return s
 			end
 			s = string.format("%q", s) -- FIXME: probably wrong, a manual string.gsub with replacement table might be better?
