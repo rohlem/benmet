@@ -1,0 +1,2477 @@
+<!DOCTYPE html>
+<html>
+<head><title>plot metrics</title>
+<script src="chart.js-3.6.0/dist/chart.js"></script>
+<script src="sgratzl-chartjs-chart-boxplot/build/index.umd.js"></script>
+<script type="text/javascript">
+	//register box plots as Chart.js type -- apparently not necessary?
+	//Chart.register(ChartBoxPlot.BoxPlotController);
+	const BoxPlotChartTypeId = ChartBoxPlot.BoxPlotChart.id;
+	
+	/* leftover rendering test code; TODO: remove
+	
+	function fun1(x) {return Math.sin(x);  }
+	function fun2(x) {return Math.cos(3*x);}
+
+	function drawTest() {
+		var canvas = document.getElementById("canvas");
+		if (null==canvas || !canvas.getContext) return;
+
+		var axes={}, ctx=canvas.getContext("2d");
+		axes.x0 = .5 + .5*canvas.width;  // x0 pixels from left to x=0
+		axes.y0 = .5 + .5*canvas.height; // y0 pixels from top to y=0
+		axes.scale = 40;                 // 40 pixels from x=0 to x=1
+		axes.doNegativeX = true;
+
+		showAxes(ctx,axes);
+		funGraph(ctx,axes,fun1,"rgb(11,153,11)",1); 
+		funGraph(ctx,axes,fun2,"rgb(66,44,255)",2);
+	}
+
+	function funGraph (ctx,axes,func,color,thick) {
+		var xx, yy, dx=4, x0=axes.x0, y0=axes.y0, scale=axes.scale;
+		var iMax = Math.round((ctx.canvas.width-x0)/dx);
+		var iMin = axes.doNegativeX ? Math.round(-x0/dx) : 0;
+		ctx.beginPath();
+		ctx.lineWidth = thick;
+		ctx.strokeStyle = color;
+
+		for (var i=iMin;i<=iMax;i++) {
+			xx = dx*i; yy = scale*func(xx/scale);
+			if (i==iMin) ctx.moveTo(x0+xx,y0-yy);
+			else         ctx.lineTo(x0+xx,y0-yy);
+		}
+		ctx.stroke();
+	}
+
+	function showAxes(ctx,axes) {
+		var x0=axes.x0, w=ctx.canvas.width;
+		var y0=axes.y0, h=ctx.canvas.height;
+		var xmin = axes.doNegativeX ? 0 : x0;
+		ctx.beginPath();
+		ctx.strokeStyle = "rgb(128,128,128)"; 
+		ctx.moveTo(xmin,y0); ctx.lineTo(w,y0);  // X axis
+		ctx.moveTo(x0,0);    ctx.lineTo(x0,h);  // Y axis
+		ctx.stroke();
+	}*/
+	
+	
+	// global program state variable section
+	
+	//holds all metric data currently loaded from opened files,
+	//as a flat list of objects/dictionaries each representing one entry ('data point')
+	var metric_entries = [];
+	//holds all encountered commit hashes (values of metric entries with names starting with 'REPO-GITCOMMITHASH-'),
+	//indexed by repository name, in the form:
+	// Map (repository_name: string) -> (Map (encountered commit hash: string) -> (true))
+	var commit_hashes_in_metrics_lookup_by_repository_name = new Map();
+	//holds overview information for all properties of all metrics currently loaded from opened files,
+	//indexed by property names, containing objects of the form:
+	// {
+	//  types: {
+	//   only: ?string (type name or null),
+	//   (["has_"+string (type name)+"s"] = true)...,
+	//  },
+	//  values: {
+	//   first_unique: (first unique value),
+	//   second_unique: (second unique value => undefined if all values are equal),
+	//   min: (minimum value, by '<'),
+	//   max: (maximum value, by '>'),
+	//  },
+	// }
+	var property_overview = [];
+	//holds the current plotting pipeline (configuration info)
+	//as a flat array containing objects of the form:
+	// {
+	//  row_id: string (HTML element id of the table row (tr element), based on property_key),
+	//  property_key: string (the corresponding property's name),
+	//  operation: string (operation name from a supported set),
+	// }
+	var plotting_pipeline = [];
+	
+	//holds the number of commit strands that have been loaded for a particular repository
+	//(not decremented on deletion, initially undefined meaning 0)
+	const next_strand_id_per_repository = {};
+	//holds the total number of commit strands that have been loaded
+	//(not decremented on deletion)
+	var next_commit_strand_id = 0;
+	//holds all currently loaded (non-removed) commit strands in the same ordering as the ui displays,
+	//as a flat array containing objects of the form:
+	// {
+	//  row_id: string (HTML element id of the table row (tr element)),
+	//  strand_name: string (the strand's assigned name),
+	//  commit_hashes: []string,
+	//  commit_display_names: Map((hash: string) -> (display_name: string)), //NOTE: it's important that this is and stays an ordered map, returning .values() and .keys() in the same order as .commit_hashes!
+	// }
+	var loaded_commit_strands = [];
+	//holds all currently loaded (non-removed) commit strands by the repository name they pertain to,
+	//in no particular order (-> loading/insertion order)
+	var loaded_commit_strands_by_repository_name = new Map();
+	//holds a lookup map from a single commit to an array of all strands it is a part of (.get(unknown) -> undefined)
+	const loaded_commit_strands_by_commit_by_repository_name = new Map();
+	//holds the commit hashes that are present in metric_entries but not loaded strand, in the form:
+	// Map ((repository_name: string) -> (commit_hashes: []string))
+	//updated by updateCommitStrandCoverage after loading metrics and/or commit strands
+	var loaded_commit_strand_coverage_not_in_strands_by_repository_name;
+	//holds the commit hashes that are present in loaded strands but not metric_entries, in the form:
+	// Map ((repository_name: string) ->
+	//  Map ((strand: object) -> (commit_hashes: []string))
+	// )
+	//updated by updateCommitStrandCoverage after loading metrics and/or commit strands
+	var loaded_commit_strand_coverage_not_in_metrics_by_strand_by_repository_name;
+	//holds extra info of every commit indexed by its hash, grouped by repository:
+	// Map ((repository_name: string) ->
+	//  Map ((commit_hash: string) -> {
+	//   tags: []string,
+	//   tag_lookup: Map (string -> true),
+	//   commit_expressions: []string,
+	//   commit_expression_lookup: Map (string -> true),
+	//  })
+	// )
+	const loaded_commit_info_by_hash_by_repository = new Map();
+	
+	
+	// function section
+	
+	//ensures that the given field holds an array and returns it
+	function ensure_field_array(object, key){
+		var array = object[key];
+		if(array === undefined){
+			array = [];
+			object[key] = array;
+		}
+		return array;
+	}
+	
+	//ensures that the given map entry holds an array and returns it
+	function ensure_entry_array(map, key){
+		var array = map.get(key);
+		if(array === undefined){
+			array = [];
+			map.set(key, array);
+		}
+		return array;
+	}
+	
+	//ensures that the given field holds a map and returns it
+	function ensure_field_map(object, key){
+		var map = object[key];
+		if(map === undefined){
+			map = new Map();
+			object[key] = map;
+		}
+		return map;
+	}
+	
+	//ensures that the given map entry holds a map and returns it
+	function ensure_entry_map(map, key){
+		var submap = map.get(key);
+		if(submap === undefined){
+			submap = new Map();
+			map.set(key, submap);
+		}
+		return submap;
+	}
+	
+	//ensures that the given map entry holds an object and returns it
+	function ensure_entry_object(map, key){
+		var object = map.get(key);
+		if(object === undefined){
+			object = {};
+			map.set(key, object);
+		}
+		return object;
+	}
+	
+	//escapes the given string (can be any text) to be insertable into the html doctree
+	function escapeForHTML(s){
+		return s
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&apos;');
+	}
+	
+	//reads all metric entries of the given metrics files
+	//into global variables metric_entries and property_overview (clearing all previous values),
+	//then (if successful) calls thenDo(...thenDoArgs), continuation-style
+	function readMetricsThen(files, thenDo, ...thenDoArgs) {
+		metric_entries = [];
+		commit_hashes_in_metrics_lookup_by_repository_name = new Map()
+		property_overview = [];
+		var line_pattern = /^([^\n=]*)=(.*)$/gm;
+		//how to parse each file, called recursively, continuation-style
+		function readFile(index) {
+			// base case / completion
+			if(index >= files.length){
+				if(thenDo !== undefined){
+					return thenDo(...thenDoArgs);
+				}
+				return;
+			}
+			var reader = new FileReader();
+			var file = files[index];
+			reader.onload = function(e) {
+				//get file contents
+				var contents = e.target.result;
+				//aggregates non-separated lines into entries
+				var current_entry = null;
+				
+				// parse a single line per iteration
+				var matches = null;
+				while(matches = line_pattern.exec(contents)){
+					var name = matches[1]
+					var value = matches[2]
+					if(name.length == 0){ // irregular line
+						if(value.startsWith("=")){ // entry separator
+							if(current_entry !== null){
+								metric_entries.push(current_entry)
+								current_entry = null
+							}
+						}else{ // otherwise the entry has no name
+							alert("Found entry with no name in file '" + file.name + "'; value='"+value+"'")
+						}
+					}else{ // regular line, add as entry
+						// add to the current entry
+						if(current_entry === null){
+							current_entry = {}
+						}
+						current_entry[name] = value;
+						
+						// ensure the property exists in the overview
+						var property_info = property_overview[name];
+						var mtypes, mvalues;
+						if(property_info === undefined){
+							mtypes = {};
+							mvalues = {};
+							property_info = {types: mtypes, values: mvalues};
+							property_overview[name] = property_info;
+							// if this is a git commit hash property, add it to commit_hashes_in_metrics_lookup_by_repository_name, which we tally in updateCommitStrandCoverage
+							if(name.startsWith("REPO-GITCOMMITHASH-")){
+								const repository_name = name.substring("REPO-GITCOMMITHASH-".length)
+								const commit_hashes_lookup = ensure_entry_map(commit_hashes_in_metrics_lookup_by_repository_name, repository_name); //probably never set here?
+								property_info.value_lookup = commit_hashes_lookup;
+							}
+						}else{
+							mtypes = property_info.types;
+							mvalues = property_info.values;
+						}
+						if(property_info.value_lookup !== undefined){
+							property_info.value_lookup.set(value, true);
+						}
+						
+						// check value type (number or string)
+						var value_type
+						var value_as_number = Number(value)
+						if(value_as_number == value_as_number){ //is a number
+							value = value_as_number
+							value_type = 'number'
+						}else{ //is not a number => is a string
+							value_type = 'string'
+						}
+						// update property info
+						if(mtypes.only === undefined){ // first instance of this property
+							mtypes.only = value_type;
+							mvalues.first_unique = value;
+							mvalues.min = value;
+							mvalues.max = value;
+						} else { // subsequent instances
+							if(mtypes.only !== value_type){
+								mtypes.only = null;
+							}
+							if(mvalues.second_unique === undefined && value !== mvalues.first_unique){
+								mvalues.second_unique = value;
+							}
+							if(value < mvalues.min){
+								mvalues.min = value;
+							}else if(value > mvalues.max){
+								mvalues.max = value;
+							}
+						}
+						mtypes["has_"+value_type+"s"] = true;
+					}
+				}
+				if(current_entry !== null){ // add last, non-terminated entry, if one exists
+					metric_entries.push(current_entry)
+				}
+				// recursively call to parse the next file (or call the continuation and exit)
+				return readFile(index+1);
+			}
+			reader.readAsBinaryString(file);
+		}
+		return readFile(0);
+	}
+	
+	//updates the total entry count in the ui,
+	//then calls thenDo(...thenDoArgs), continuation-style
+	function updateEntryCountOutputThen(thenDo, ...thenDoArgs){
+		document.getElementById("ui_metric_entry_count_output").innerHTML = metric_entries.length+" entries loaded"
+		if(thenDo !== undefined){
+			return thenDo(...thenDoArgs);
+		}
+	}
+	
+	//LEFTOVER/UNUSED; TODO: remove
+	//replaces the property overview table in the ui
+	//with the data from the global variable property_overview,
+	//then calls thenDo(...thenDoArgs), continuation-style
+	function updateEntriesOutputThen(thenDo, ...thenDoArgs){
+		var new_table_rows_html = "<thead><tr><th>property</th><th>type</th><th>first unique value</th><th>second unique value</th>";
+		//new_table_rows_html += "<th>min</th><th>max</th>";
+		new_table_rows_html += "</tr></thead><tbody>";
+		for(var key in property_overview){ // append one row per property
+			var info = property_overview[key];
+			new_table_rows_html+="<tr>";
+				new_table_rows_html+="<td>"+key+"</td>";
+				var only_type = info.types.only;
+				new_table_rows_html+="<td>"+(only_type === null ? "mixed" : only_type)+"</td>";
+				var first_unique = info.values.first_unique;
+				new_table_rows_html+="<td>"+first_unique+"</td>";
+				var second_unique = info.values.second_unique;
+				new_table_rows_html+="<td>"+(second_unique === undefined ? "" : second_unique)+"</td>";
+				//new_table_rows_html+="<td>"+"(min)"+"</td>";
+				//new_table_rows_html+="<td>"+"(max)"+"</td>";
+			new_table_rows_html+="</tr>";
+		}
+		new_table_rows_html += "</tbody>";
+		document.getElementById("ui_property_overview_output").innerHTML = new_table_rows_html;
+		if(thenDo !== undefined){
+			return thenDo(...thenDoArgs);
+		}
+	}
+	
+	//returns the default operation (name) for the given property_key,
+	// based on currently loaded data in global variable metric_entries
+	function defaultOperation(property_key){
+		const all_values_equal = property_overview[property_key].values.second_unique === undefined;
+		return all_values_equal
+			?	'assert_uniform'
+			:	property_key.startsWith("REPO-GITCOMMITHASH-")
+				?	'split_figures_and_order_x_commit_strands'
+				:	'split_groups';
+	}
+	
+	//lookup table associating operations (by name) with CSS styles (background colour)
+	const operation_styles = {
+		assert_uniform: "background: #DFD;",
+		split_figures: "background: #FFB;",
+		split_groups: "background: #FEC;",
+		plot_x: "background: #FBF;",
+		split_figures_and_order_x_commit_strands: "background: #FDE",
+		plot_y: "background: #CCF;",
+		plot_y_list: "background: #CBF;",
+		plot_y_aggregate_2: "background: #CAF;",
+		discard_merge: "background: #FAA;",
+	}
+	//returns the corresponding CSS style for a given operation (name)
+	function operationStyle(operation){
+		var style = operation_styles[operation];
+		return style === undefined
+			? ""
+			: style;
+	}
+	
+	function queryPipelineOperationWarningForProperty(property_key, selected_operation){
+		const overview = property_overview[property_key];
+		switch(selected_operation){
+			case 'assert_uniform':
+				if(overview.values.second_unique !== undefined){
+					return "property holds non-uniform values";
+				}
+				break;
+			case 'plot_x':
+			case 'plot_y':
+				if(overview.types.only !== 'number'){
+					return "property holds non-numeric values";
+				}
+				break;
+			case 'plot_y_list':
+			case 'plot_y_aggregate_2':
+				if(overview.types.only !== 'string'){
+					return "property holds non-string (=> non-JSON-array) values";
+				}
+				break;
+		}
+		return undefined;
+	}
+	
+	function construct_plotting_pipeline_operation(property_key, selected_operation){
+		// every row is referrable by unique id based on its property name
+		const row_id = "pipeline-ui-row-"+property_key;
+		
+		// check whether the operation gels for this property in the currently loaded data, but continue even in case of warning
+		const operation_warning = queryPipelineOperationWarningForProperty(property_key, selected_operation);
+		
+		// construct the logical element object
+		const plotting_pipeline_element = {row_id: row_id, property_key: property_key, operation: selected_operation};
+		
+		const row_element = document.createElement('tr');
+		
+		row_element.setAttribute('id', row_id);
+		
+		// style element according to selected operation
+		row_element.setAttribute('style', operationStyle(selected_operation));
+		
+		// buttons for manual reordering
+		const reordering_td = document.createElement('td')
+		
+		const swap_downwards_button = document.createElement('button');
+		swap_downwards_button.onclick = function() {reorderPipelineStepMoveStably(row_id, 1)}
+		swap_downwards_button.textContent = "v";
+		reordering_td.appendChild(swap_downwards_button);
+		
+		const swap_upwards_button = document.createElement('button');
+		swap_upwards_button.onclick = function() {reorderPipelineStepMoveStably(row_id, -1)}
+		swap_upwards_button.textContent = "^";
+		reordering_td.appendChild(swap_upwards_button);
+		
+		row_element.appendChild(reordering_td);
+		
+		//row type column
+		const type_td = document.createElement('td');
+		type_td.textContent = "operation";
+		row_element.appendChild(type_td);
+		
+		//property name (value type) column
+		const name_type_td = document.createElement('td');
+		const overview = property_overview[property_key];
+		const only_type = overview.types.only;
+		const type_suffix = " (" + (only_type === null ? "mixed" : only_type) + ")";
+		name_type_td.textContent = property_key + type_suffix;
+		
+		//hover text gives overview of values
+		const overview_values = overview.values;
+		const first_unique = overview_values.first_unique, second_unique = overview_values.second_unique;
+		const value_description = second_unique === undefined
+			? "only value: "+first_unique
+			: "first unique value: "+first_unique+"\nsecond unique value: "+second_unique+"\nmin value: "+overview_values.min+"\nmax value: "+overview_values.max;
+		name_type_td.setAttribute('title', value_description);
+		row_element.appendChild(name_type_td);
+		
+		//operation kind selections
+		const operation_kind_td = document.createElement('td');
+		operation_kind_td.setAttribute('style', "font-size: small;")
+		
+			const input_identity = "operation_kind-"+row_id;
+			const radio_button_onchange = function() {setPlottingOperation(row_id, this.value);}
+			const add_radio_button = function(value, text){
+				const radio_button = document.createElement('input');
+				radio_button.setAttribute('type', 'radio');
+				radio_button.setAttribute('name', input_identity); //the input group within which the activation of one radio button deactivates all others
+				const radio_button_id = input_identity+"-"+value;
+				radio_button.setAttribute('id', radio_button_id);
+				if(value === selected_operation){
+					radio_button.setAttribute('checked', "");
+				}
+				radio_button.setAttribute('value', value);
+				radio_button.onchange = radio_button_onchange;
+				operation_kind_td.appendChild(radio_button);
+				
+				const label = document.createElement('label');
+				label.setAttribute('for', radio_button_id);
+				label.textContent = text;
+				operation_kind_td.appendChild(label);
+			}
+			add_radio_button('assert_uniform', "assert uniform");
+			add_radio_button('split_figures', "split figures");
+			add_radio_button('split_groups', "split into groups");
+			add_radio_button('plot_x', "(broken) use as x axis");
+			add_radio_button('split_figures_and_order_x_commit_strands', "split figures, order commits oldest-left on x axis")
+			add_radio_button('plot_y', "use as y axis");
+			add_radio_button('plot_y_list', "boxplot");
+			add_radio_button('plot_y_aggregate_2', "derive y axes (advanced)");
+			add_radio_button('discard_merge', "discard");
+		
+		row_element.appendChild(operation_kind_td);
+		
+		return {
+			plotting_pipeline_element: plotting_pipeline_element,
+			html_tr_element: row_element,
+			operation_warning: operation_warning,
+		};
+	}
+	
+	//reconstructs the plotting pipeline
+	//based on the global variable property_overview
+	//into the global variable plotting_pipeline (clearing its previous values),
+	//then calls thenDo(...thenDoArgs), continuation-style
+	function rebuildPlottingPipelineThen(thenDo, ...thenDoArgs){
+		document.getElementById("ui_plotting_pipeline_table").hidden = false;
+		
+		plotting_pipeline = [];
+		const plotting_pipeline_operations = document.getElementById("ui_plotting_pipeline_operations");
+		
+		while(plotting_pipeline_operations.firstChild){ // remove all previous rows
+			plotting_pipeline_operations.removeChild(plotting_pipeline_operations.firstChild);
+		}
+		for(const key in property_overview){ // append one row per property in property_overview
+			const default_operation = defaultOperation(key); //determine default operation based on loaded data
+			
+			const constructed = construct_plotting_pipeline_operation(key, default_operation);
+			plotting_pipeline.push(constructed.plotting_pipeline_element);
+			plotting_pipeline_operations.appendChild(constructed.html_tr_element);
+			if(constructed.operation_warning !== undefined){
+				alert("Default pipeline operation '"+default_operation+"' for property '"+key+"' triggered warning:\n"+constructed.operation_warning);
+			}
+		}
+		
+		if(thenDo !== undefined){
+			return thenDo(...thenDoArgs);
+		}
+	}
+	
+	//TODO: document
+	function replacePlottingPipelineFromConfigFile(file){
+		const reader = new FileReader();
+		reader.onload = function(e){
+			const config_json = e.target.result;
+			const new_config = JSON.parse(config_json);
+			
+			// check for incongruence of properties between global property_overview and parsed new_config
+			const properties_only_before_lookup = new Map();
+			for(const key in property_overview){
+				properties_only_before_lookup.set(key, true);
+			}
+			const properties_only_after_lookup = new Map();
+			for(const new_config_operation of new_config){
+				const key = new_config_operation.property_key;
+				if(properties_only_before_lookup.get(key) === undefined){
+					properties_only_after_lookup.set(key, true);
+				}else{
+					properties_only_before_lookup.delete(key);
+				}
+			}
+			const incongruence_messages = [];
+			if(properties_only_before_lookup.size > 0){
+				incongruence_messages.push("The following keys are not present in the config file:\n\t"+Array.from(properties_only_before_lookup.keys()).join("\n\t"));
+			}
+			if(properties_only_after_lookup.size > 0){
+				incongruence_messages.push("The following keys are not present in the loaded metrics data:\n\t"+Array.from(properties_only_after_lookup.keys()).join("\n\t"));
+			}
+			if(incongruence_messages.length > 0){
+				alert("Import error:\n"+incongruence_messages.join("\n"));
+				return;
+			}
+			
+			// replace the pipeline
+			plotting_pipeline = [];
+			const plotting_pipeline_operations = document.getElementById("ui_plotting_pipeline_operations");
+			
+			while(plotting_pipeline_operations.firstChild){ // remove all previous rows
+				plotting_pipeline_operations.removeChild(plotting_pipeline_operations.firstChild);
+			}
+			
+			for(const config_entry of new_config){
+				const key = config_entry.property_key;
+				if(config_entry.row_id !== "pipeline-ui-row-"+key){
+					alert("info: normalizing unusual row_id from pipeline configuration\nexpected: pipeline-ui-row-"+key+"\nreceived: "+config_entry.row_id);
+				}
+				const operation = config_entry.operation;
+				
+				const constructed = construct_plotting_pipeline_operation(key, operation);
+				if(constructed.operation_warning !== undefined){
+					alert("Warning: Operation '"+operation+"' for property '"+key+"' triggered warning on loaded data:\n"+constructed.operation_warning);
+				}
+				plotting_pipeline.push(constructed.plotting_pipeline_element);
+				plotting_pipeline_operations.appendChild(constructed.html_tr_element);
+			}
+		};
+		reader.readAsBinaryString(file);
+	}
+	
+	//sets the plotting operation of pipeline entry with the given .row_id to the given operation (name string)
+	function setPlottingOperation(row_id, new_operation){
+		for(var i = 0; i < plotting_pipeline.length; ++i){
+			var element = plotting_pipeline[i];
+			if(element.row_id === row_id){
+				element.operation = new_operation;
+				document.getElementById(row_id).setAttribute('style', operationStyle(new_operation));
+				return;
+			}
+		}
+		throw "could not find row_id '"+row_id+"' in plotting_pipeline";
+	}
+	
+	//swaps the plotting pipeline entry at the two given indices
+	function reorderPipelineStepsSwap(first_index, second_index){
+		if(first_index < 0)
+			throw "first index invalid (negative)";
+		if(second_index < 0)
+			throw "second index invalid (negative)";
+		if(first_index >= plotting_pipeline.length)
+			throw "first index invalid (>= plotting_pipeline.length)";
+		if(second_index >= plotting_pipeline.length)
+			throw "second index invalid (>= plotting_pipeline.length)";
+		
+		if(first_index == second_index) return;
+		
+		//swap the logical in plotting_pipeline
+		const element_a = plotting_pipeline[first_index];
+		const element_b = plotting_pipeline[second_index];
+		plotting_pipeline[first_index] = element_b;
+		plotting_pipeline[second_index] = element_a;
+		//swap the HTML table rows
+		const row_a = document.getElementById(element_a.row_id);
+		const next_after_a = row_a.nextSibling;
+		const row_b = document.getElementById(element_b.row_id);
+		const next_after_b = row_b.nextSibling;
+		
+		const table = document.getElementById("ui_plotting_pipeline_operations");
+		//.insertBefore(x, y) inserts (-> moves) x before y (the order is weird, I know);
+		//if y is null, it moves x to the very end, which is just what we want here.
+		table.insertBefore(row_b, next_after_a);
+		table.insertBefore(row_a, next_after_b);
+	}
+	
+	//moves the plotting pipeline entry with the given .row_id by delta positions (given in indices, so -1 moves up)
+	function reorderPipelineStepMoveStably(row_id, delta){
+		for(var index_of_element_to_move = 0; index_of_element_to_move < plotting_pipeline.length; ++index_of_element_to_move){
+			var element = plotting_pipeline[index_of_element_to_move];
+			if(element.row_id === row_id){
+				break;
+			}
+		}
+		if(index_of_element_to_move == plotting_pipeline.length)
+			throw "could not find row_id '"+row_id+"' in plotting_pipeline";
+		
+		while(delta <= -1 || delta >= 1){
+			var swappedElementIndex;
+			if(delta < 0){
+				if(index_of_element_to_move === 0){
+					return;
+				}
+				swappedElementIndex = index_of_element_to_move-1;
+				++delta;
+			}else{
+				if(index_of_element_to_move === plotting_pipeline.length-1){
+					return;
+				}
+				swappedElementIndex = index_of_element_to_move+1;
+				--delta;
+			}
+			reorderPipelineStepsSwap(index_of_element_to_move, swappedElementIndex);
+			index_of_element_to_move = swappedElementIndex;
+		}
+	}
+	
+	const operations_ordering = {
+		assert_uniform: 0,
+		split_figures: 1,
+		split_groups: 2,
+		plot_x: 3,
+		split_figures_and_order_x_commit_strands: 4,
+		plot_y: 5,
+		plot_y_list: 6,
+		plot_y_aggregate_2: 7,
+		discard_merge: 8,
+		_length: 9,
+	};
+	//stably reorders the pipeline according to each step's operation, by their ordering in operations_ordered (implemented as stable counting sort)
+	function reorderPipelineAllAutoByOperation(){
+		//step one: count the number of pipeline steps with each available operation, and build a list pipeline_index -> bucket_index
+		const in_bucket_counts = [];
+		for(var operation_i = 0; operation_i < operations_ordering._length; ++operation_i){
+			in_bucket_counts[operation_i] = 0;
+		}
+		const to_bucket_list = [];
+		for(var pipeline_i = 0; pipeline_i < plotting_pipeline.length; ++pipeline_i){
+			var element = plotting_pipeline[pipeline_i];
+			var bucket_i = operations_ordering[element.operation];
+			if(bucket_i === undefined)
+				throw "unexpected operation '"+element.operation+"' at plotting_pipeline["+pipeline_i+"]"
+			to_bucket_list[pipeline_i] = bucket_i;
+			++in_bucket_counts[bucket_i];
+		}
+		//step two: sum individual counts to running totals
+		const running_total_counts = [];
+		var running_total_count = 0;
+		for(var bucket_i = 0; bucket_i < operations_ordering._length; ++bucket_i){
+			running_total_counts[bucket_i] = running_total_count;
+			running_total_count += in_bucket_counts[bucket_i];
+		}
+		//step three: calculate target positions
+		const to_list = [];
+		for(var pipeline_i = 0; pipeline_i < plotting_pipeline.length; ++pipeline_i){
+			const bucket_i = to_bucket_list[pipeline_i];
+			to_list[pipeline_i] = running_total_counts[bucket_i];
+			++running_total_counts[bucket_i];
+		}
+		//step four: swap elements until all are in their target positions
+		for(var pipeline_i = 0; pipeline_i < plotting_pipeline.length;){
+			const result_index = to_list[pipeline_i];
+			if(pipeline_i == result_index){
+				++pipeline_i;
+			}else{
+				reorderPipelineStepsSwap(pipeline_i, result_index);
+				to_list[pipeline_i] = to_list[result_index];
+				to_list[result_index] = result_index;
+			}
+		}
+	}
+	
+	//asserts that only one repository has non-uniform commit hashes
+	//TODO: get rid of this?
+	function assertAllButOneRepoUseUniformCommits(metric_entries, property_overview, sort_by_repo_name){
+		for(var key in property_overview){
+			if(key.startsWith("REPO-GITCOMMITHASH-")){
+				var repo_name = key.substring(0, "REPO-GITCOMMITHASH-".length)
+				if(repo_name != sort_by_repo_name){
+					if(property_overview[key].values.second_unique !== undefined){
+						throw "non-excluded non-uniform git commit found in repository '"+repo_name+"'";
+					}
+				}
+			}
+		}
+	}
+	
+	//sorts the given metric_entries by their REPO-GITCOMMITHASH-(sort_by_repo_name) values
+	//TODO: implement actual git history sorting instead of this (lexicographic sorting)
+	function sortByUniqueGitHistory(metric_entries, property_overview, sort_by_repo_name){
+		assertAllButOneRepoUseUniformCommits(metric_entries, property_overview, sort_by_repo_name);
+		gitcommithash_key = "REPO-GITCOMMITHASH-"+sort_by_repo_name;
+		metric_entries.sort(function(a, b) {
+				var commit_a = a[gitcommithash_key];
+				var commit_b = b[gitcommithash_key];
+				//TODO: Implement the actual sort we want
+				if(commit_a < commit_b)
+					return -1;
+				if(commit_a > commit_b)
+					return 1;
+				if(commit_a === commit_b)
+					return 0;
+				throw "uncomparable commits encountered: '"+commit_a+"' and '"+commit_b+"'";
+			});
+		return metric_entries;
+	}
+	
+	//helper function; TODO: document
+	function alreadyOrJsonParseArray(value) {
+		const array = (typeof value) === 'string'
+			? JSON.parse(value)
+			: value;
+		if(!Array.isArray(array)){
+			throw "parsing JSON returned unexpected non-array: '"+array+"'";
+		}
+		return array;
+	}
+	function number_array_average(numbers) {
+		var total = 0;
+		for(number of numbers){
+			total += number;
+		}
+		return total/numbers.length;
+	}
+	function median(values) {
+		const number_tuples = [];
+		var tuple_index = 0;
+		for(const value of values){
+			const number = Number(value);
+			if(number === null) throw "failed to find median: list contained non-number";
+			if(number !== number) throw "failed to find median: list contained NaN";
+			number_tuples.push([number, tuple_index]);
+			++tuple_index;
+		}
+		number_tuples.sort(function(a, b){
+			if(a[0] < b[0]) return -1;
+			else if(a[0] > b[0]) return 1;
+			else return 0;
+		});
+		const half_len = number_tuples.length/2;
+		if(number_tuples.length % 2 == 0){
+			//we have to do math, can't keep it a string
+			return (number_tuples[half_len-1][0] + number_tuples[half_len][0])/2;
+		}else{
+			//keep it a string (in case it was one) if we can
+			return values[number_tuples[Math.floor(half_len)][1]];
+		}
+	}
+	
+	//execute the plotting pipeline stored in the global variable plotting_pipeline on data (in-place);
+	//data has the following structure:
+	// {
+	//	 unattended_properties: [string] (a list of all properties not yet processed by the pipeline),
+	//  plot_axis_x_ordering_property: string (the name of the property within entries the value of which is used to order the x position,
+	//    presumably initially undefined),
+	//  plot_axis_y_property_interfaces: [{name: string, get_for: fn(self, entry) value}]
+	//    (a name and an interface to obtain the values of properties within entries, which are used as y value, presumably initially undefined),
+	//  groups_by_figure: (a list with data of groups for each figure) [{
+	//    prefix_string: string (the criteria identifying this figure among others),
+	//    entry_groups: (a list of objects describing each group) [{
+	//       prefix_string: string (the criteria identifying this group's entries within the figure among others),
+	//       entries: [object] (the list of entries, are property dictionary objects, which make up this group),
+	//     }]
+	//   }],
+	// }
+	function executePipelineOperations(data){
+		for(var i = 0; i < plotting_pipeline.length; ++i){
+			var element = plotting_pipeline[i];
+			var operation = element.operation;
+			if(operation === undefined){
+				throw "non-operation element in pipeline at index "+i;
+			}
+			//check for duplicate keys
+			var key = element.property_key;
+			var unattended_index = data.unattended_properties.indexOf(key);
+			if(unattended_index === -1){
+				throw "key '"+key+"' has more than one operation in pipeline";
+			}
+			//mark this property as having been attended to
+			data.unattended_properties.splice(unattended_index, 1);
+			//do the respective operation
+			switch(operation){
+				case 'assert_uniform':
+					if(property_overview[key].values.second_unique !== undefined)
+						throw "value of key '"+key+"' not uniform";
+					break;
+				case 'split_figures':{
+					const original_figures_data = data.groups_by_figure;
+					var new_groups_by_figure = [];
+					for(var figure_i = 0; figure_i < original_figures_data.length; ++figure_i){
+						var original_figure = original_figures_data[figure_i];
+						var new_figures_by_value = {};
+						for(var group_i = 0; group_i < original_figure.entry_groups.length; ++group_i){
+							var new_groups_by_value = {};
+							var original_group = original_figure.entry_groups[group_i];
+							for(var entry_i = 0; entry_i < original_group.entries.length; ++entry_i){
+								var entry = original_group.entries[entry_i];
+								var value = entry[key];
+								var group = new_groups_by_value[value];
+								if(group === undefined){
+									group = {prefix_string: original_group.prefix_string, entries: []};
+									new_groups_by_value[value] = group;
+									var figure = new_figures_by_value[value];
+									if(figure === undefined){
+										figure = {
+											prefix_string: original_figure.prefix_string+key+"="+value+";",
+											entry_groups: [],
+											x_label: original_figure.x_label,
+											x_axis_commit_strand: original_figure.x_axis_commit_strand,
+										};
+										new_figures_by_value[value] = figure;
+										new_groups_by_figure.push(figure);
+									}
+									figure.entry_groups.push(group);
+								}
+								group.entries.push(entry);
+							}
+						}
+					}
+					data.groups_by_figure = new_groups_by_figure;
+					break;
+				}
+				case 'split_groups':
+					const group_index_lookup_by_value = new Map(); // we want to avoid a different ordering for the same value groups across graphs
+					var next_group_index = 0;
+					const original_figures_data = data.groups_by_figure;
+					for(const original_figure of original_figures_data){
+						const new_group_bucket_by_value = [];
+						for(const original_group of original_figure.entry_groups){
+							const new_groups_by_value = new Map();
+							for(const entry of original_group.entries){
+								const value = entry[key];
+								var group = new_groups_by_value.get(value);
+								if(group === undefined){
+									group = {prefix_string: original_group.prefix_string+key+"="+value+";", entries: []};
+									new_groups_by_value.set(value, group);
+									var bucket_index = group_index_lookup_by_value.get(value)
+									if(bucket_index === undefined){
+										bucket_index = next_group_index;
+										group_index_lookup_by_value.set(value, bucket_index);
+										++next_group_index;
+									}
+									var bucket = new_group_bucket_by_value[bucket_index];
+									if(bucket === undefined){
+										bucket = [];
+										new_group_bucket_by_value[bucket_index] = bucket;
+									}
+									bucket.push(group);
+								}
+								group.entries.push(entry);
+							}
+						}
+						original_figure.entry_groups = new_group_bucket_by_value.flat();
+					}
+					break;
+				case 'plot_x':
+					throw "unimplemented (todo: implement as order_x, plot_x is probably unnecessary)"
+					if(data.plot_axis_x_ordering_property !== undefined)
+						throw "plot already has key '"+data.plot_axis_x_ordering_property+"' set as x axis!";
+					data.plot_axis_x_ordering_property = key;
+					break;
+				case 'split_figures_and_order_x_commit_strands':
+					if(data.plot_axis_x_ordering_property !== undefined)
+						throw "plot already has key '"+data.plot_axis_x_ordering_property+"' set as x axis!";
+					data.plot_axis_x_ordering_property = key;
+					const expected_prefix = "REPO-GITCOMMITHASH-";
+					if(!key.startsWith(expected_prefix))
+						throw "unimplemented: key '"+key+"' does not start with 'REPO-GITCOMMITHASH-', don't know how to parse repository name";
+					const repository_name = key.substring(expected_prefix.length);
+					const commit_strands = loaded_commit_strands_by_repository_name.get(repository_name);
+					if((commit_strands === undefined) || (commit_strands.length === 0))
+						throw "no commit strands loaded for repository '"+repository_name+"' => no resulting figures!";
+					const loaded_commit_strands_by_commit = loaded_commit_strands_by_commit_by_repository_name.get(repository_name)
+					if(loaded_commit_strands_by_commit === undefined)
+						throw "unreachable: found commit strands, but not indexed by commit (should have happened upon loading commit strands)";
+					
+					const loaded_commit_strand_coverage_not_in_strands = loaded_commit_strand_coverage_not_in_strands_by_repository_name.get(repository_name)
+					if(loaded_commit_strand_coverage_not_in_strands !== undefined){
+						alert("metric entries contain "+loaded_commit_strand_coverage_not_in_strands.count+" commits of repository '"+repository_name+"' not present in any loaded strands!\nThese will not appear in any plots:\n"+JSON.stringify(loaded_commit_strand_coverage_not_in_strands));
+					}
+					const loaded_commit_strand_coverage_not_in_metrics_by_strand = loaded_commit_strand_coverage_not_in_metrics_by_strand_by_repository_name.get(repository_name)
+					if(loaded_commit_strand_coverage_not_in_metrics_by_strand !== undefined){
+						for(var strand of loaded_commit_strand_coverage_not_in_metrics_by_strand.keys()){
+							const hashes = loaded_commit_strand_coverage_not_in_metrics_by_strand.get(strand)
+							alert("commit strand "+strand.strand_name+" of repository '"+repository_name+"' contains "+hashes.length+" commits not present in the loaded metrics:\n"+hashes.join("\n"));
+						}
+					}
+					
+					//split figures, for each commit strand, by whether the commit is included
+					//and order groups by these strands
+					var new_groups_by_figure = [];
+					for(const original_figure of data.groups_by_figure){
+						if(original_figure.x_axis_commit_strand !== undefined){
+							alert("Error: figure already has a commit strand set as x axis: "+original_figure.x_axis_commit_strand);
+						}
+						var new_figures_by_strand = new Map();
+						for(const original_group of original_figure.entry_groups){
+							const new_groups_by_strand = new Map();
+							//splitting
+							for(var entry_i = 0; entry_i < original_group.entries.length; ++entry_i){
+								const entry = original_group.entries[entry_i];
+								const commit_hash = entry[key];
+								var strands = loaded_commit_strands_by_commit.get(commit_hash);
+								if(strands === undefined){
+									continue;
+								}
+								for(var strand_i = 0; strand_i < strands.length; ++strand_i){
+									const strand = strands[strand_i];
+									var group = new_groups_by_strand.get(strand);
+									if(group === undefined){
+										group = {prefix_string: original_group.prefix_string, entries: []};
+										new_groups_by_strand.set(strand, group);
+										var figure = new_figures_by_strand.get(strand);
+										if(figure === undefined){
+											figure = {
+												prefix_string: original_figure.prefix_string+"REPO-COMMITSTRAND-"+repository_name+"="+strand.strand_name+";",
+												entry_groups: [],
+												x_labels: Array.from(strand.commit_display_names.values()),
+												x_axis_commit_strand: strand,
+											};
+											new_figures_by_strand.set(strand, figure);
+											new_groups_by_figure.push(figure);
+										}
+										figure.entry_groups.push(group);
+									}
+									group.entries.push(entry);
+								}
+							}
+						}
+					}
+					data.groups_by_figure = new_groups_by_figure;
+					break;
+				case 'plot_y':
+					const standard_property_get_for = function(self, entry) {
+						return entry[self.name];
+					};
+					ensure_field_array(data, 'plot_axis_y_property_interfaces').push({name: key, get_for: standard_property_get_for});
+					break;
+				case 'plot_y_list':{
+					const base_name = key.endsWith("-list")
+						? key.slice(0, key.length - ("-list".length))
+						: key;
+					const shared_aggregate_data = {
+						key: key,
+						ensure_computed_for: function(entry) {
+							if(this.computed_for === entry) return;
+							
+							const list_of_numbers = [];
+							
+							try {
+								const input = entry[this.key];
+								const outer_parsed = alreadyOrJsonParseArray(input);
+								for(const value of outer_parsed) {
+									const number = Number(value);
+									if(number !== number){ //not a number
+										throw "non-number encountered of entry y to boxplot: "+value;
+									}
+									list_of_numbers.push(number);
+								}
+							} catch(exception) {
+								throw "failed to parse JSON to plot y list key '"+this.key+"'; exception: "+exception;
+							}
+							
+							this.max = Math.max(...list_of_numbers);
+							this.min = Math.min(...list_of_numbers);
+							this.median = median(list_of_numbers);
+							this.mean = number_array_average(list_of_numbers);
+							
+							this.computed_for = entry;
+						},
+					};
+					
+					const interfaces = ensure_field_array(data, 'plot_axis_y_property_interfaces');
+					//boxplot
+					interfaces.push({
+						name: base_name+'-list',
+						get_for: function(self, entry) {return entry[self.name];},
+					});
+					//computed values
+					interfaces.push({
+						name: base_name+'-l-mean',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return self.data.mean;},
+					});
+					/*interfaces.push({
+						name: base_name+'-l-median',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return self.data.median;},
+					});
+					interfaces.push({
+						name: base_name+'-l-maximum',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return self.data.max;},
+					});
+					interfaces.push({
+						name: base_name+'-l-minimum',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return self.data.min;},
+					});*/
+					break;
+				}
+				case 'plot_y_aggregate_2':{
+					const base_name = key.endsWith("-list-per-dispatch")
+						? key.slice(0, key.length - ("-list-per-dispatch".length))
+						: key;
+					const shared_aggregate_data = {
+						key: key,
+						ensure_computed_for: function(entry) {
+							if(this.computed_for === entry) return;
+							
+							const list_of_lists_of_numbers = [];
+							
+							try {
+								const outer_parsed = alreadyOrJsonParseArray(entry[this.key]);
+								for(const list_string of outer_parsed) {
+									const original_list = alreadyOrJsonParseArray(list_string);
+									const list = [];
+									for(const value of original_list){
+										const number = Number(value);
+										if(number !== number){ //not a number
+											throw "non-number encountered element list of entry y to aggregate: "+value;
+										}
+										list.push(number);
+									}
+									list_of_lists_of_numbers.push(list);
+								}
+							} catch(exception) {
+								throw "failed to parse JSON to plot y aggregate key '"+this.key+"'; exception: "+exception;
+							}
+							
+							// remove warmup cycles: currently hardcoded to maximum of first 10% or first 4 values
+							const warmup_ratio = 2.0/10.0;
+							const min_warmup_length = 4;
+							for(const list of list_of_lists_of_numbers) {
+								const warmup_length = Math.max(Math.ceil(list.length*warmup_ratio), min_warmup_length);
+								const before_length = list.length;
+								if(list.length > warmup_length) {
+									list.splice(0, warmup_length); //remove the first warmup_length elements (in-place)
+								} else {
+									if(list.length > 0) {
+										alert("list length "+list.length+" shorter than warmup length of "+warmup_length);
+										list.splice(0, list.length-1); //remove all but the last element
+									} else {
+										alert("list unexpectedly holds no numbers; failed to aggregate anything!");
+										this.computed_for = entry;
+										return; //abort
+									}
+								}
+								//if(list.length < 20){
+								//	console.log("before "+before_length+" -> after splice "+list.length);
+								//}
+							}
+							
+							this.max_list = [];
+							this.min_list = [];
+							this.mean_list = [];
+							this.median_list = [];
+							for(const list of list_of_lists_of_numbers) {
+								this.max_list.push(Math.max(...list));
+								this.min_list.push(Math.min(...list));
+								this.median_list.push(median(list));
+								this.mean_list.push(number_array_average(list));
+							}
+							
+							this.computed_for = entry;
+						},
+					};
+					
+					const interfaces = ensure_field_array(data, 'plot_axis_y_property_interfaces');
+					interfaces.push({
+						name: base_name+'-mean-list',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return self.data.mean_list;},
+					});
+					interfaces.push({
+						name: base_name+'-mean-mean',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return number_array_average(self.data.mean_list);},
+					});
+					/*interfaces.push({
+						name: base_name+'-mean-median',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return median(self.data.mean_list);},
+					});
+					interfaces.push({
+						name: base_name+'-median-list',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return self.data.median_list;},
+					});
+					interfaces.push({
+						name: base_name+'-median-mean',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return number_array_average(self.data.median_list);},
+					});
+					interfaces.push({
+						name: base_name+'-median-median',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return median(self.data.median_list);},
+					});
+					interfaces.push({
+						name: base_name+'-maxima-list',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return self.data.max_list;},
+					});
+					interfaces.push({
+						name: base_name+'-maxima-median',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return median(self.data.max_list);},
+					});
+					interfaces.push({
+						name: base_name+'-minima-list',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return self.data.min_list;},
+					});
+					interfaces.push({
+						name: base_name+'-minima-median',
+						data: shared_aggregate_data,
+						get_for: function(self, entry) {self.data.ensure_computed_for(entry); return median(self.data.min_list);},
+					});*/
+					break;
+				}
+				case 'discard_merge': break; //completely ignores this entry's value
+				default: throw "unimplemented operation '"+operation+"' in pipeline";
+			}
+		}
+		if(data.unattended_properties.length > 0)
+			throw "unattended keys left after pipeline: '"+data.unattended_properties.join("', '")+"'";
+	}
+	
+	const group_colours = [
+			"rgb(255,180,180)",
+			"rgb(180,255,180)",
+			"rgb(180,180,255)",
+			"rgb(255,255,160)",
+			"rgb(160,255,255)",
+			"rgb(255,160,255)",
+			"rgb(255,200,140)",
+			"rgb(200,255,140)",
+			"rgb(140,255,200)",
+			"rgb(140,200,255)",
+			"rgb(200,140,255)",
+			"rgb(255,140,200)",
+			
+			"rgb(170,170,170)",
+			
+			"rgb(255,220,220)",
+			"rgb(220,255,220)",
+			"rgb(220,220,255)",
+			"rgb(255,255,200)",
+			"rgb(200,255,255)",
+			"rgb(255,200,255)",
+			"rgb(255,215,180)",
+			"rgb(215,255,180)",
+			"rgb(180,255,215)",
+			"rgb(180,215,255)",
+			"rgb(215,180,255)",
+			"rgb(255,180,215)",
+			
+			"rgb(110,110,110)",
+		];
+	
+	//old chart.js chart instances constructed for the last drawMetricsTest() call; can be destroyed in the next call
+	const lastDrawMetricsTestChartInstances = [];
+	//processing the data held in the global variable metric_entries via executePipelineOperations,
+	//then draws the result as figures in canvases in 
+	function drawMetricsTest(){
+		//destroy all now-unused chart instances from the last execution
+		for(const instance of lastDrawMetricsTestChartInstances){
+			instance.destroy();
+		}
+		lastDrawMetricsTestChartInstances.length = 0;
+		
+		//prepare data / execute pipeline
+		var unattended_properties = [];
+		for(var key in property_overview){
+			unattended_properties.push(key);
+		}
+		var data = {unattended_properties: unattended_properties, groups_by_figure: [{prefix_string: "", entry_groups: [{prefix_string: "", entries: metric_entries.slice()}]}]};
+		executePipelineOperations(data);
+		//plot data
+		var canvases = document.getElementById("ui_canvases");
+		if (null==canvases) throw "could not find canvases div to put canvases in";
+		var canvases_inner_html = "";
+		
+		var x_key = data.plot_axis_x_ordering_property;
+		if(x_key === undefined)
+			throw "no property specified as x axis ordering";
+		var y_key_interfaces = data.plot_axis_y_property_interfaces;
+		if(y_key_interfaces === undefined)
+			throw "no property specified as y axis";
+		const single_y_key = y_key_interfaces.length === 1;
+		
+		const canvas_width = document.getElementById('ui_canvas_width_field').value
+		const canvas_height = document.getElementById('ui_canvas_height_field').value
+		const use_chart_js = document.getElementById('ui_canvas_use_chart_js').checked
+		const include_y_0 = document.getElementById('ui_canvas_include_y_0').checked
+		
+		const per_figure_dataset_minimum_string_export_f = Function(document.getElementById("ui_function_input_per_figure_dataset_minimum").value)();
+		const string_export_result_strings_with_ordering = [];
+		
+		//IMPORTANT: Editing any parent element's .innerHTML _clears canvases! (Stupid thing to debug.)
+		//So we put them into separate <div>s, and HAVE to add each canvas's siblings before drawing into them.
+		canvases.innerHTML = "<div></div>".repeat(data.groups_by_figure.length);
+		global_figure_configs = [];
+		const cross_figure_group_colour_lookup = new Map();
+		var next_colour_i = 0;
+		var warned_about_looping_colours = false;
+		const collision_merge = document.getElementById('ui_enable_custom_merge_on_entry_collision').checked
+			? (Function(document.getElementById('ui_function_custom_merge_on_entry_collision').value)())
+			: (function(a, b, figure_i, x_key){
+				alert("Warning: multiple data entries with same commit hash in group of figure #"+figure_i+" ("+b[x_key]+": "+a+" -> "+b+")");
+				return b;
+			});
+		for(var figure_i = 0; figure_i < data.groups_by_figure.length; ++figure_i){
+			const figure = data.groups_by_figure[figure_i];
+			const figure_div = canvases.children[figure_i];
+			//every figure gets an h3 heading, a canvas, and an unordered list as legend
+			figure_div.innerHTML = "<h3>Figure "+escapeForHTML(figure.prefix_string).replaceAll(";", "<br>")+"</h3><small>searchable anchor: "+escapeForHTML(figure.prefix_string)+"</small><canvas width='"+canvas_width+"' height='"+canvas_height+"'></canvas><ul></ul>";
+			const canvas = figure_div.children[2];
+			if (canvas === null) throw "could not find canvas to draw on";
+			
+			var ctx, width, height, legend;
+			if(!use_chart_js){
+				if(!canvas.getContext || ((ctx=canvas.getContext("2d")) === null)) throw "could not get context to draw on canvas";
+				
+				width = ctx.canvas.width, height = ctx.canvas.height;
+				ctx.clearRect(0, 0, width, height);
+				
+				legend = figure_div.children[2];
+				if (legend === null) throw "could not find legend for figure";
+			}
+			
+			// sort entries in figures according to the strand chosen as x-axis, insert null entry where no entry's commit hash matches
+			const strand = figure.x_axis_commit_strand;
+			if(!x_key.startsWith("REPO-GITCOMMITHASH-")){
+				alert("assertion failed: x key does not appear to be a commit hash: "+x_key);
+			}
+			const hash_indexOf_lookup = strand.hash_indexOf_lookup;
+			for(const group of figure.entry_groups){
+				const entries = group.entries
+				if(entries.length == 0){
+					alert("Error: empty group in figure #"+figure_i)
+				}
+				const sorted_entries = new Array(strand.commit_hashes.length).fill(null); //Note: Calling [].fill does NOT add entries! In particular, fill never modifies the length of an array.
+				for(const entry of entries){
+					const index = hash_indexOf_lookup[entry[x_key]];
+					const f = (sorted_entries[index] !== null);
+					//if(f) debugger;
+					sorted_entries[index] = (sorted_entries[index] === null)
+						? entry
+						: collision_merge(sorted_entries[index], entry, figure_i, x_key);
+				}
+				group.entries = sorted_entries;
+			}
+			
+			//extract y-value arrays, as well as min and max values per figure and per group from entries
+			//IMPORTANT: They are still strings, need to be converted to numbers!
+			var any_value_from_any_group;
+			for(const entry of figure.entry_groups[0].entries){
+				if(entry !== null){
+					const first_interface = y_key_interfaces[0];
+					const first_get_for = first_interface.get_for;
+					any_value_from_any_group = Number(first_get_for(first_interface, entry));
+					break;
+				}
+			}
+			var all_groups_min_value = any_value_from_any_group;
+			var all_groups_max_value = any_value_from_any_group;
+			var individual_group_min_values = [];
+			
+			const datasets_in_graph = [];
+			var group_i = 0; //identifies combination of group and y_key and chart type (line or boxplot)
+			for(const y_key_interface of y_key_interfaces){
+				const y_key_prefix = single_y_key ? "" : "'"+(y_key_interface.name)+"' on Y | ";
+				for(const group of figure.entry_groups){
+					const group_entries = group.entries;
+					
+					if(group_entries.length > figure.x_labels.length){
+						alert("warning: more entries ("+group_entries.length+") than labels ("+figure.x_labels.length+")");
+					}
+					
+					const group_id = y_key_prefix+group.prefix_string;
+					
+					var colour = cross_figure_group_colour_lookup.get(group_id);
+					if(colour === undefined){
+						colour = group_colours[next_colour_i];
+						++next_colour_i;
+						if(next_colour_i >= group_colours.length){
+							if(!warned_about_looping_colours){
+								alert("Warning: too many combinations of y keys over groups; some colours may collide!")
+								warned_about_looping_colours = true;
+							}
+							next_colour_i = 0;
+						}
+						cross_figure_group_colour_lookup.set(group_id, colour)
+					}
+					
+					var group_i_line = null;
+					var group_i_boxplot = null;
+					const current_line_data = new Array(group_entries.length).fill(null);
+					const current_boxplot_data = new Array(group_entries.length).fill(null);
+					const current_line_dataset = {
+						label: group_id,
+						type: 'line',
+						data: current_line_data,
+						borderColor: colour,
+						backgroundColor: colour,//Utils.transparentize(colour),
+					};
+					const current_boxplot_dataset = {
+						label: group_id,
+						type: BoxPlotChartTypeId,
+						data: current_boxplot_data,
+						borderColor: colour,
+						backgroundColor: colour,//Utils.transparentize(colour),
+					};
+					
+					for(const entry_i in group_entries){
+						const entry = group_entries[entry_i];
+						if(entry !== undefined && entry !== null){
+							const get_for = y_key_interface.get_for;
+							const value = get_for(y_key_interface, entry);
+							if(value === undefined){
+								alert("Error: undefined value found in group of figure #"+figure_i);
+							}
+							const number = Number(value);
+							if(number === number){ //not NaN => was a single number
+								if(group_i_line === null){
+									group_i_line = group_i;
+									datasets_in_graph[group_i_line] = current_line_dataset;
+									++group_i;
+								}
+								current_line_data[entry_i] = number;
+								if(number < all_groups_min_value){
+									all_groups_min_value = number;
+								}else if(number > all_groups_max_value){
+									all_groups_max_value = number;
+								}
+								if((individual_group_min_values[group_i_line] === undefined) || (number < individual_group_min_values[group_i_line])){
+									individual_group_min_values[group_i_line] = number;
+								}
+							}else{ //NaN => was not a single number (we assume a list)
+								if(group_i_boxplot === null){
+									group_i_boxplot = group_i;
+									datasets_in_graph[group_i_boxplot] = current_boxplot_dataset;
+									++group_i;
+								}
+								var list = undefined;
+								try {
+									list = alreadyOrJsonParseArray(value);
+								} catch(exception) {
+									debugger;
+								}
+								for(const value_i in list){
+									list[value_i] = Number(list[value_i]);
+								}
+								current_boxplot_data[entry_i] = list;
+								const min_value = Math.min(...list);
+								const max_value = Math.max(...list);
+								all_groups_min_value = Math.min(all_groups_min_value, min_value);
+								all_groups_max_value = Math.max(all_groups_max_value, max_value);
+								/*
+								if((individual_group_min_values[group_i_boxplot] === undefined) || (min_value < individual_group_min_values[group_i_boxplot])){
+									individual_group_min_values[group_i_boxplot] = min_value;
+								}
+								*/
+							}
+						}
+					}
+					
+					if((group_i_line !== null) || (group_i_boxplot !== null)){
+						if(per_figure_dataset_minimum_string_export_f !== undefined && per_figure_dataset_minimum_string_export_f !== null){
+							const next_string_export_result = per_figure_dataset_minimum_string_export_f(figure, current_line_dataset, (group_i_line !== null) ? individual_group_min_values[group_i_line] : null, current_boxplot_data/*, individual_group_min_values[group_i_boxplot]*/);
+							string_export_result_strings_with_ordering.push(next_string_export_result);
+						}
+					}
+				}
+			}
+			var drawing_range_min_value = all_groups_min_value;
+			var drawing_range_max_value = all_groups_max_value;
+			if(include_y_0){
+				drawing_range_min_value = Math.min(drawing_range_min_value, 0);
+				drawing_range_max_value = Math.max(drawing_range_max_value, 0);
+			}
+			const drawing_range_value_range = drawing_range_max_value - drawing_range_min_value;
+			const all_groups_value_range = all_groups_max_value - all_groups_min_value;
+			const y_text = single_y_key ? "'"+(y_key_interfaces[0].name)+"' on Y " : "";
+			var legend_inner_html = "Plotting "+y_text+"over X ordered by '"+x_key+"'. Values range from "+all_groups_min_value+" to "+all_groups_max_value+" (max = "+(100*all_groups_max_value/all_groups_min_value).toPrecision(4)+"% of min).<br>Groups:";
+			if(use_chart_js){
+				const group_min_values = individual_group_min_values; // note the var above would be a shared instance between for loop iterations
+				//pass the data to chart.js
+				const chart_config = {
+					data: {
+						labels: figure.x_labels,
+						datasets: datasets_in_graph,
+					},
+					options: {
+						responsive: false, //true?
+						interaction: {
+							intersect: false,
+							mode: 'index',
+						},
+						scales: {
+							y: {
+								beginAtZero: include_y_0,
+							},
+						},
+						plugins: {
+							legend: {
+							  position: 'top',
+							},
+							/*title: {
+								display: true,
+								text: title_text,
+							},*/
+							tooltip: {
+								callbacks: {
+									label: function(context){ // see https://www.chartjs.org/docs/latest/configuration/tooltip.html#label-callback
+										var label = context.dataset.label;
+										if(datasets_in_graph[context.datasetIndex].type == 'line'){
+											label = label
+												? label + ": "
+												: "";
+											const value = Number(context.raw || context.parsed.y);
+											if (value !== null) {
+												const ratio_of_minimum = value/group_min_values[context.datasetIndex];
+												label += value.toPrecision(4) + " = " + (ratio_of_minimum*100).toPrecision(4) + "% of min";
+											}
+										}else{
+											label += context.formattedValue.toString();
+										}
+										return label;
+									},
+								},
+							},
+						},
+					},
+				}
+				global_figure_configs[figure_i] = chart_config;
+				const chart = new Chart(canvas, chart_config);
+				lastDrawMetricsTestChartInstances.push(chart);
+			}else{
+				//construct the legend and actually draw the graph
+				for(const current_dataset of datasets_in_graph){
+					if(current_dataset.type === 'line'){
+						const current_data = current_dataset.data;
+						const colour = current_dataset.borderColor;
+						legend_inner_html+="<li><span style='background: "+colour+"'>&nbsp;&nbsp;&nbsp;</span>"+current_dataset.label+" ("+current_data.length+" entries)</li>";
+						ctx.beginPath();
+						ctx.lineWidth = 3;
+						ctx.strokeStyle = colour;
+						
+						//TODO maybe eventually?: implement variable x axis
+						for(var i = 0; i < current_data.length; ++i){
+							const x = .5 + i*(width-1)/(current_data.length-1);
+							const y = height - height*((current_data[i] - drawing_range_min_value)/drawing_range_value_range);
+							if(i == 0) ctx.moveTo(x, y)
+							else ctx.lineTo(x, y)
+						}
+						
+						ctx.stroke();
+					}else{
+						const error_string = "unsupported chart type for native rendering: '"+current_dataset.type+"'";
+						alert(error_string);
+						debugger;
+						throw error_string;
+					}
+				}
+				legend.innerHTML = legend_inner_html;
+			}
+			
+			string_export_result_strings_with_ordering.sort(function(a, b){
+				const a_is_nan = a[0] != a[0];
+				const b_is_nan = b[0] != b[0];
+				if(a_is_nan){
+					if(b_is_nan) return 0;
+					else return 1;
+				}else if(b_is_nan){
+					return -1;
+				}else if(a[0] < b[0]) return -1;
+				else if(a[0] > b[0]) return 1;
+				else return 0;
+			});
+			const string_export_result_strings_ordered = [];
+			for(const entry of string_export_result_strings_with_ordering){
+				string_export_result_strings_ordered.push(entry[1]);
+			}
+			document.getElementById("ui_function_output_per_figure_dataset").textContent = string_export_result_strings_ordered.join();
+		}
+	}
+	
+	//TODO: document
+	//merges the already-present commit info instance A with the new instance B
+	function merge_commit_info_in_place(old_info, new_info){
+		if(old_info.timestamp !== new_info.timestamp){
+			if(old_info.timestamp === undefined){
+				old_info.timestamp = new_info.timestamp;
+			}else{
+				alert("repository '"+repository_name+"' commit '"+key+"' is already known with a conflicting timestamp '"+old_info.timestmp+"'\ndiscarding new timestamp of '"+new_info.timestamp+"'")
+			}
+		}
+		const tag_lookup = ensure_field_map(old_info, 'tag_lookup');
+		if(new_info.tags !== undefined){
+			new_info.tags.forEach(function(e){tag_lookup.set(e, true)});
+		}
+		if(new_info.tag_lookup !== undefined){
+			new_info.tag_lookup.forEach(function(value, key){tag_lookup.set(key, value);})
+		}
+		const commit_expression_lookup = ensure_field_map(old_info, 'commit_expression_lookup');
+		if(new_info['commit-expressions'] !== undefined){
+			new_info['commit-expressions'].forEach(function(e){commit_expression_lookup.set(e, true);});
+		}
+		if(new_info.commit_expression_lookup !== undefined){
+			new_info.commit_expression_lookup.forEach(function(value, key){commit_expression_lookup.set(key, value);})
+		}
+	}
+	
+	//TODO: document
+	//merges the already-present commit_info_by_hash map A with the new map B
+	function merge_commit_info_by_hash_in_place(old_map, new_map){
+		for(const entry of new_map.entries()){
+			const key = entry[0], value = entry[1];
+			const commit_info = ensure_entry_object(old_map, key);
+			merge_commit_info_in_place(commit_info, value);
+		}
+	}
+	
+	//reads the ordered commit strands from the given files
+	//then (if successful) calls thenDoWithStrandsAndCommitInfoLookupByHash([]: commit_strands_by_repository, commit_info_by_hash_by_repository, ...thenDoWithStrandsArgs)
+	//for every ordering strand, continuation-style //appends them as table rows to ui_commit_ordering_strands
+	function readOrderedCommitStrandsThen(files, thenDoWithStrandsAndCommitInfoLookupByHash, ...thenDoWithStrandsArgs){
+		if(thenDoWithStrandsAndCommitInfoLookupByHash === undefined)
+			throw "no thenDoWithStrandsAndCommitInfoLookupByHash given!";
+		
+		const commit_strands_by_repository = new Map();
+		const commit_info_by_hash_by_repository = new Map();
+		const repo_key_pattern = /^repository-info-(.*)/;
+		//how to parse each file, called recursively, continuation-style
+		function readFile(index) {
+			// base case / completion
+			if(index >= files.length){
+				return thenDoWithStrandsAndCommitInfoLookupByHash(commit_strands_by_repository, commit_info_by_hash_by_repository, ...thenDoWithStrandsArgs);
+			}
+			const reader = new FileReader();
+			const file = files[index];
+			const file_name = file.name;
+			reader.onload = function(e) {
+				//get file contents
+				const contents_string = e.target.result;
+				var contents_parsed;
+				try{
+					contents_parsed = JSON.parse(contents_string);
+				}catch(e){
+					alert(e);
+				}
+				if(contents_parsed !== undefined){
+					for(const top_level_key in contents_parsed){
+						if(top_level_key !== 'repository-infos'){
+							alert("Warning: ignoring unrecognized top-level key '"+top_level_key+"' in supplied commit-ordering file '"+file_name+"'");
+							continue;
+						}
+						const repo_infos = contents_parsed[top_level_key];
+						for(const repository_name in repo_infos){
+							const repository_entry = repo_infos[repository_name];
+							
+							const parsed_commit_info_by_hash = repository_entry['commit-info-by-hash']
+							if(parsed_commit_info_by_hash !== undefined){
+								const commit_info_by_hash_for_repository = ensure_entry_map(commit_info_by_hash_by_repository, repository_name);
+								merge_commit_info_by_hash_in_place(commit_info_by_hash_for_repository, new Map(Object.entries(parsed_commit_info_by_hash)));
+							}else{
+								alert("Warning: no commit info by hash present in supplied commit-ordering file '"+file_name+"'");
+							}
+							
+							var unnamed_strand_index = 0;
+							const commit_strands = ensure_entry_array(commit_strands_by_repository, repository_name);
+							const new_commit_strands = repository_entry['commit-strands']
+							if(new_commit_strands !== undefined){
+								for(const new_strand_index in new_commit_strands){
+									const new_strand = new_commit_strands[new_strand_index];
+									//notable irregularity: A strand can be an object, but may also be an array that directly holds the ordered commit hashes.
+									const strand = {};
+									const only_hashes = Array.isArray(new_strand);
+									if(only_hashes){
+										strand.commit_hashes = new_strand;
+									}else{
+										strand.strand_name = new_strand.strand_name;
+									}
+									if(strand.strand_name === undefined){
+										strand.strand_name = repository_name+" #"+new_strand_index+" ("+file_name+" unnamed #"+unnamed_strand_index+")";
+										++unnamed_strand_index;
+									}
+									if(!only_hashes){
+										const hashes = new_strand['commit-hashes'];
+										strand.commit_hashes = hashes;
+										
+										const commit_display_name_data = new_strand['commit-display-names'];
+										if(commit_display_name_data !== undefined){
+											const commit_display_names = new Map();
+											strand.commit_display_names = commit_display_names;
+											for(const i in hashes){
+												const hash = hashes[i];
+												const name = commit_display_name_data[i];
+												if(name === undefined){
+													alert("Warning: ignoring commit display names of repository '"+repository_name+"' strand '"+strand.strand_name+"':\nmissing entry for commit '"+hash+"'");
+													strand.commit_display_names = undefined;
+													break;
+												}
+												commit_display_names.set(hash, name);
+											}
+										}
+									}
+									
+									commit_strands.push(strand);
+								}
+							}else{
+								alert("Warning: no commit strands in repository '"+repository_name+"' entry in commit-ordering file '"+file_name+"'");
+							}
+						}
+					}
+				}
+				
+				// recursively call to parse the next file (or call the continuation and exit)
+				return readFile(index+1);
+			}
+			reader.readAsBinaryString(file);
+		}
+		return readFile(0);
+	}
+	
+	//TODO: document
+	function commit_strand_name_field_update(target, confirmation){
+		const use_full_width_style = "width: 98%;"
+		if(confirmation || target.value === target.getAttribute("value")){
+			target.setAttribute("style", use_full_width_style+"background: #FFF")
+			target.setAttribute("title", "")
+			if(target.value !== target.getAttribute("value")){
+				target.setAttribute("value", target.value)
+				const parent_id = target.parentElement.parentElement.id
+				var this_strand;
+				for(var i = 0; i < loaded_commit_strands.length; ++i){
+					const strand = loaded_commit_strands[i];
+					if(strand.row_id == parent_id){
+						this_strand = strand;
+						break;
+					}
+				}
+				if(this_strand === undefined){
+					throw "failed to find loaded commit strand with id '"+parent_id+"' to update it"
+				}
+				this_strand.strand_name = target.value;
+			}
+		}else{
+			target.setAttribute("style", use_full_width_style+"background: #FFA")
+			target.setAttribute("title", "(confirm with enter)")
+		}
+	}
+	function commit_strand_name_field_oninput(e){
+		commit_strand_name_field_update(e.target, false)
+	}
+	function commit_strand_name_field_onchange(e){
+		commit_strand_name_field_update(e.target, true)
+	}
+	function update_commit_info_total_lists(commit_info_by_hash){
+		for(const entry of commit_info_by_hash.entries()){
+			const commit_info = entry[1];
+			const total_tags = Array.from(commit_info.tag_lookup.keys());
+			commit_info.tags = total_tags.sort();
+			const total_expressions = Array.from(commit_info.commit_expression_lookup.keys());
+			commit_info.commit_expressions = total_expressions.sort();
+		}
+	}
+	function construct_commit_strand_commit_name_selection_element(commit_display_names){
+		// potential future TODO?: we _could construct an HTML datalist element and fill it with default display methods.
+		// But then again, that should maybe be a drop-down (HTML select element) that applies it to the entire strand, for consistency?
+		// for now we just have a text box per commit
+		const outer_td = document.createElement('td');
+		const table = document.createElement('table');
+		table.setAttribute("border", "");
+		{
+			const head_tr = document.createElement('tr');
+			const hash_th = document.createElement('th');
+			hash_th.textContent = "commit hash" //TODO: (hover for info)
+			head_tr.appendChild(hash_th);
+			const display_th = document.createElement('th');
+			display_th.textContent = "display name";
+			head_tr.appendChild(display_th);
+			table.appendChild(head_tr);
+		}
+		for(const entry of commit_display_names.entries()){
+			const hash = entry[0], initial_value = entry[1];
+			const tr = document.createElement('tr');
+			const hash_td = document.createElement('td'); //TODO: set "title" to summary of commit_info (requires additional repository_name, commit_hash function arguments)
+			hash_td.textContent = hash;
+			tr.appendChild(hash_td)
+			
+			const display_name_td = document.createElement('td');
+			const display_name_input = document.createElement('input');
+			display_name_input.setAttribute('type', 'text');
+			display_name_input.value = initial_value;
+			display_name_td.appendChild(display_name_input)
+			display_name_td.onchange = function(e){commit_display_names.set(hash, e.target.value);};
+			tr.appendChild(display_name_td)
+			
+			table.appendChild(tr);
+		}
+		outer_td.appendChild(table);
+		return outer_td;
+	}
+	function appendOrderedCommitStrandsThen(new_commit_strands_by_repository, new_commit_info_by_hash_by_repository, thenDo, ...thenDoArgs){
+		//add commit info
+		for(const repo_entry of new_commit_info_by_hash_by_repository){
+			const repository_name = repo_entry[0], new_commit_info_by_hash = repo_entry[1];
+			const loaded_commit_info_by_hash = ensure_entry_map(loaded_commit_info_by_hash_by_repository, repository_name);
+			merge_commit_info_by_hash_in_place(loaded_commit_info_by_hash, new_commit_info_by_hash);
+			update_commit_info_total_lists(loaded_commit_info_by_hash);
+		}
+		//add commit strands
+		var nonempty_flag = false;
+		const use_full_width_style = "width: 98%;";
+		const commit_ordering_strands_table = document.getElementById("ui_commit_ordering_strands");
+		for(const entry of new_commit_strands_by_repository){
+			const repository_name = entry[0], new_strands = entry[1];
+			const loaded_commit_info_by_hash = ensure_entry_map(loaded_commit_info_by_hash_by_repository, repository_name);
+			const loaded_strands = ensure_entry_array(loaded_commit_strands_by_repository_name, repository_name)
+			
+			for(const strand of new_strands){
+				loaded_strands.push(strand)
+				nonempty_flag = true;
+				
+				const commit_hashes = strand.commit_hashes;
+				if(strand.commit_display_names === undefined){
+					const commit_display_names = new Map();
+					strand.commit_display_names = commit_display_names;
+					for(const hash of commit_hashes){
+						const info = loaded_commit_info_by_hash.get(hash);
+						var display_name = undefined;
+						if(info !== undefined){
+							if(info.tags !== undefined && info.tags.length > 0){
+								display_name = info.tags[0];
+							}else{
+								if(info.commit_expressions !== undefined){
+									for(const commit_expression of info.commit_expressions){
+										if(!hash.startsWith(commit_expression)){
+											display_name = commit_expression;
+											break;
+										}
+									}
+								}
+								if(display_name === undefined){
+									display_name = info.timestamp !== undefined
+										? info.timestamp.substring(0, 7)
+										: undefined;
+								}
+							}
+						}else{
+							alert("no commit info for repository '"+repository_name+"' commit '"+hash+"'")
+						}
+						if(display_name === undefined){
+							display_name = hash.substring(0, 7);
+						}
+						commit_display_names.set(hash, display_name);
+					}
+				}
+				
+				const row_id = "commit-strand-ui-row-"+next_commit_strand_id;
+				strand.row_id = row_id;
+				const row = document.createElement("tr");
+				row.setAttribute("id", row_id);
+				++next_commit_strand_id;
+				
+				const reorder_td = document.createElement("td");
+				reorder_td.append("todo")
+				row.appendChild(reorder_td)
+				
+				const repo_td = document.createElement("td");
+				repo_td.textContent = repository_name;
+				row.appendChild(repo_td)
+				
+				const name_td = document.createElement("td");
+				const name_field = document.createElement("input");
+				name_field.setAttribute("id", row_id+"-name-field")
+				name_field.setAttribute("type", "text");
+				name_field.setAttribute("value", strand.strand_name)
+				name_field.setAttribute("style", use_full_width_style+"background: #FFF")
+				name_field.oninput = commit_strand_name_field_oninput
+				name_field.onchange = commit_strand_name_field_onchange
+				name_td.appendChild(name_field)
+				row.appendChild(name_td)
+				
+				const commits_in_metrics_td = document.createElement("td");
+				strand.ui_commits_in_metrics_td = commits_in_metrics_td;
+				row.appendChild(commits_in_metrics_td);
+				
+				const commits_not_in_metrics_td = document.createElement("td");
+				strand.ui_commits_not_in_metrics_td = commits_not_in_metrics_td;
+				row.appendChild(commits_not_in_metrics_td);
+				
+				const all_commits_td = document.createElement("td");
+				all_commits_td.textContent = commit_hashes.length;
+				const hover_string = commit_hashes.join("\n");
+				all_commits_td.setAttribute("title", hover_string);
+				row.appendChild(all_commits_td);
+				
+				const commit_display_name_td = construct_commit_strand_commit_name_selection_element(strand.commit_display_names);
+				row.appendChild(commit_display_name_td)
+				
+				commit_ordering_strands_table.appendChild(row);
+				
+				const hash_indexOf_lookup = {}
+				for(const i in commit_hashes){
+					hash_indexOf_lookup[commit_hashes[i]] = i;
+				}
+				strand.hash_indexOf_lookup = hash_indexOf_lookup;
+				
+				/*only for commit strand reordering UI... which is currently inacessible*/
+					strand.repository_name = repository_name;
+					loaded_commit_strands.push(strand)
+				
+				for(const hash of commit_hashes){
+					const loaded_commit_strands_by_commit = ensure_entry_map(loaded_commit_strands_by_commit_by_repository_name, repository_name);
+					const strands_with_this_commit = ensure_entry_array(loaded_commit_strands_by_commit, hash);
+					strands_with_this_commit.push(strand)
+				}
+			}
+		}
+		if(nonempty_flag){
+			document.getElementById("ui_commit_ordering_strands_loaded_headers-1").hidden = false;
+			document.getElementById("ui_commit_ordering_strands_loaded_headers-2").hidden = false;
+		}
+		if(thenDo !== undefined){
+			return thenDo(...thenDoArgs);
+		}
+	}
+	
+	//rebuilds (overwrites) the value of
+	//global variables loaded_commit_strand_coverage_not_in_strands_by_repository_name
+	//and loaded_commit_strand_coverage_not_in_metrics_by_strand_by_repository_name
+	//by matching global variables loaded_commit_strands_by_repository_name
+	//and commit_hashes_in_metrics_lookup_by_repository_name against each other,
+	//and updates the ui_commit_ordering_strand_coverage and _header sections
+	//of the commit strands table.
+	//Calls thenDo(...thenDoArgs), continuation-style, after completing.
+	function updateCommitStrandCoverageThen(thenDo, ...thenDoArgs){
+		var unmentionedCommitsInnerHTML = "";
+		loaded_commit_strand_coverage_not_in_metrics_by_strand_by_repository_name = new Map();
+		loaded_commit_strand_coverage_not_in_strands_by_repository_name = new Map();
+		
+		const update_strand_ui = function(commit_strand, hashes_in_metrics, hashes_not_in_metrics){
+			commit_strand.ui_commits_in_metrics_td.innerHTML = hashes_in_metrics.length;
+			commit_strand.ui_commits_in_metrics_td.setAttribute("title", hashes_in_metrics.join("\n"));
+			commit_strand.ui_commits_not_in_metrics_td.innerHTML = hashes_not_in_metrics.length;
+			commit_strand.ui_commits_not_in_metrics_td.setAttribute("title", hashes_not_in_metrics.join("\n"));
+		};
+		
+		// first look through our commit strands for repositories
+		for(const entry of loaded_commit_strands_by_repository_name.entries()){
+			const repository_name = entry[0], commit_strands = entry[1];
+			const loaded_commit_strand_coverage_not_in_metrics_by_strand = new Map();
+			const commit_hashes_in_metrics_lookup = commit_hashes_in_metrics_lookup_by_repository_name.get(repository_name);
+			if(commit_hashes_in_metrics_lookup === undefined){ // this repository doesn't come up in the metrics, so neither do any of the strands' commits
+				for(const commit_strand of commit_strands){
+					update_strand_ui(commit_strand, [], commit_strand.commit_hashes);
+					loaded_commit_strand_coverage_not_in_metrics_by_strand.set(commit_strand, commit_strand.commit_hashes);
+				}
+			}else{ // this repository comes up in the metrics
+				for(const commit_strand of commit_strands){
+					//split commits of these strand according to whether they're in metrics
+					const hashes_in_metrics = [], hashes_not_in_metrics = [];
+					for(const commit_hash of commit_strand.commit_hashes){
+						((commit_hashes_in_metrics_lookup.get(commit_hash) === true)
+							? hashes_in_metrics
+							: hashes_not_in_metrics
+							).push(commit_hash);
+					}
+					update_strand_ui(commit_strand, hashes_in_metrics, hashes_not_in_metrics);
+					loaded_commit_strand_coverage_not_in_metrics_by_strand.set(commit_strand, hashes_not_in_metrics);
+				}
+			}
+		}
+		// now look through (data from) our metrics for repositories
+		for(const entry of commit_hashes_in_metrics_lookup_by_repository_name.entries()){
+			const repository_name = entry[0], commit_hashes_in_metrics_lookup = entry[1];
+			const commit_strands = loaded_commit_strands_by_repository_name.get(repository_name);
+			var commit_hashes_not_encountered = commit_hashes_in_metrics_lookup;
+			if(commit_strands !== undefined){ // these show up in some commit strands - filter out if any hashes don't
+				commit_hashes_not_encountered = new Map(commit_hashes_in_metrics_lookup)
+				for(const commit_strand of commit_strands){
+					for(const commit_hash of commit_strand.commit_hashes){
+						commit_hashes_not_encountered.delete(commit_hash);
+					}
+				}
+			}
+			if(commit_hashes_not_encountered.size > 0){
+				const hover_string = Array.from(commit_hashes_not_encountered.keys()).join("\n");
+				const count_commits_string = commit_hashes_not_encountered.size === 1
+					? "1 commit"
+					: commit_hashes_not_encountered.size+" commits";
+				unmentionedCommitsInnerHTML += "<tr><td></td><td>"+repository_name+"</td><td colspan='4' title='"+hover_string+"'>"+count_commits_string+" in no loaded strand</td></tr>"
+				loaded_commit_strand_coverage_not_in_strands_by_repository_name.set(repository_name, commit_hashes_not_encountered);
+			}
+		}
+		document.getElementById('ui_commit_ordering_strand_coverage').innerHTML = unmentionedCommitsInnerHTML;
+		document.getElementById('ui_commit_ordering_strand_coverage_header').hidden = unmentionedCommitsInnerHTML === "";
+		if(thenDo !== undefined){
+			return thenDo(...thenDoArgs);
+		}
+	}
+	
+	//swaps the commit strands at the two given indices
+	//modelled after PREVIOUS reorderPipelineStepsSwap; TODO: update!!!
+	function reorderCommitStrandsSwap(first_index, second_index){
+		if(first_index < 0)
+			throw "first index invalid (negative)";
+		if(second_index < 0)
+			throw "second index invalid (negative)";
+		if(first_index >= loaded_commit_strands.length)
+			throw "first index invalid (> loaded_commit_strands.length)";
+		if(second_index >= loaded_commit_strands.length)
+			throw "second index invalid (> loaded_commit_strands.length)";
+		
+		if(first_index == second_index) return;
+		
+		const element_a = loaded_commit_strands[first_index];
+		const element_b = loaded_commit_strands[second_index];
+		loaded_commit_strands[first_index] = element_b;
+		loaded_commit_strands[second_index] = element_a;
+		const row_a_id = element_a.row_id;
+		const row_b_id = element_b.row_id;
+		const row_a = document.getElementById(row_a_id);
+		const row_b = document.getElementById(row_b_id);
+		const row_a_html = row_a.outerHTML;
+		const row_b_html = row_b.outerHTML;
+		row_a.outerHTML = row_b_html;
+		row_b.outerHTML = row_a_html;
+		
+		const name_field_a = document.getElementById(row_a_id+"-name-field")
+		const name_field_b = document.getElementById(row_b_id+"-name-field")
+		name_field_a.oninput = commit_strand_name_field_oninput
+		name_field_a.onchange = commit_strand_name_field_onchange
+		name_field_b.oninput = commit_strand_name_field_oninput
+		name_field_b.onchange = commit_strand_name_field_onchange
+		name_field_a.value = element_a.strand_name;
+		name_field_b.value = element_b.strand_name;
+	}
+	//stably reorders the commit strands according to the repositories they describe (implemented as stable counting sort)
+	//modelled after reorderPipelineAllAutoByOperation
+	function reorderCommitStrandsAllAutoByRepository(){
+		//step one: count the number of pipeline steps with each available operation, and build a list pipeline_index -> bucket_index
+		const bucket_i_by_repo = {};
+		const in_bucket_counts = [];
+		const to_bucket_list = [];
+		for(var strand_i = 0; strand_i < loaded_commit_strands.length; ++strand_i){
+			const repository_name = loaded_commit_strands[strand_i].repository_name;
+			var bucket_i = bucket_i_by_repo[repository_name];
+			if(bucket_i === undefined){
+				bucket_i = in_bucket_counts.length;
+				bucket_i_by_repo[repository_name] = bucket_i;
+				in_bucket_counts.push(1);
+			}else
+				++in_bucket_counts[bucket_i];
+			to_bucket_list[strand_i] = bucket_i;
+		}
+		//step two: sum individual counts to running totals
+		const running_total_counts = [];
+		var running_total_count = 0;
+		for(var bucket_i = 0; bucket_i < in_bucket_counts.length; ++bucket_i){
+			running_total_counts[bucket_i] = running_total_count;
+			running_total_count += in_bucket_counts[bucket_i];
+		}
+		//step three: calculate target positions
+		const to_list = [];
+		for(var strand_i = 0; strand_i < loaded_commit_strands.length; ++strand_i){
+			const bucket_i = to_bucket_list[strand_i];
+			to_list[strand_i] = running_total_counts[bucket_i];
+			++running_total_counts[bucket_i];
+		}
+		//step four: swap elements until all are in their target positions
+		for(var strand_i = 0; strand_i < loaded_commit_strands.length;){
+			const result_index = to_list[strand_i];
+			if(strand_i == result_index){
+				++strand_i;
+			}else{
+				reorderCommitStrandsSwap(strand_i, result_index);
+				to_list[strand_i] = to_list[result_index];
+				to_list[result_index] = result_index;
+			}
+		}
+	}
+	
+	//TODO: document (even though it's pretty obvious)
+	function export_metrics_entries(format){
+		if(format !== 'json'){
+			throw "unsupported metrics export format '"+format+"'";
+		}
+		if(metric_entries.length == 0){
+			alert("no metrics data currently loaded");
+			return null;
+		}
+		return {
+			data: JSON.stringify(metric_entries),
+			file_name: "exported_metrics."+format,
+		};
+	}
+	
+	function export_plotting_pipeline_config(format){
+		if(format !== 'json'){
+			throw "unsupported metrics export format '"+format+"'";
+		}
+		if(plotting_pipeline.length == 0){
+			alert("no plotting pipeline currently loaded");
+			return null;
+		}
+		return {
+			data: JSON.stringify(plotting_pipeline),
+			file_name: "plotting_pipeline_config."+format,
+		};
+	}
+	
+	function export_commit_strand_info(format){
+		if(format !== 'json'){
+			throw "unsupported repository info format '"+format+"'";
+		}
+		if(loaded_commit_strands_by_repository_name.size == 0){
+			alert("no commit strands currently loaded");
+			return null;
+		}
+		const data_by_repository = {};
+		for(const repository_entry of loaded_commit_strands_by_commit_by_repository_name.entries()){
+			const repository_name = repository_entry[0], commit_strands_by_commit = repository_entry[1];
+			
+			const loaded_commit_info_by_hash = loaded_commit_info_by_hash_by_repository.get(repository_name);
+			const commit_infos = {};
+			for(const info_entry of loaded_commit_info_by_hash){
+				const commit_hash = info_entry[0], info = info_entry[1];
+				commit_infos[commit_hash] = {
+					timestamp: info.timestamp,
+					'commit-expressions': info.commit_expressions,
+					tags: info.tags,
+				};
+			}
+			
+			const loaded_commit_strands = loaded_commit_strands_by_repository_name.get(repository_name);
+			const commit_strands = [];
+			for(const strand of loaded_commit_strands){
+				const strand_name = strand.strand_name;
+				
+				const commit_hashes = strand.commit_hashes;
+				const commit_display_names = Array.from(strand.commit_display_names.values());
+				//consistency check
+				var i = 0;
+				for(const hash_from_display_names of strand.commit_display_names.keys()){
+					const expected_hash = commit_hashes[i];
+					if(expected_hash !== hash_from_display_names){
+						alert("consistency check failed: commit hash #"+i+" in repository '"+repository_name+"' strand '"+strand_name+"' does not match display name entry:\n- hash: "+expected_hash+"\n- display name for: "+hash_from_display_names);
+						break;
+					}
+					++i;
+				}
+				const strand_to_export = (i == commit_hashes.length)
+					?	{
+							strand_name: strand_name,
+							'commit-hashes': commit_hashes,
+							'commit-display-names': commit_display_names,
+						}
+					: commit_hashes;
+				commit_strands.push(strand_to_export);
+			}
+			data_by_repository[repository_name] = {
+				'commit-info-by-hash': commit_infos,
+				'commit-strands': commit_strands,
+			};
+		}
+		return {
+			data: JSON.stringify({'repository-infos': data_by_repository}),
+			file_name: "commit_strands."+format,
+		}
+	}
+	
+	//from https://stackoverflow.com/a/15031019
+	function helper_new_blob(contents, mime_type){
+		try {
+			return new Blob([contents], {type: mime_type});
+		} catch (e) {
+			// The BlobBuilder API has been deprecated in favour of Blob, but older
+			// browsers don't know about the Blob constructor
+			// IE10 also supports BlobBuilder, but since the `Blob` constructor
+			//  also works, there's no need to add `MSBlobBuilder`.
+			var BlobBuilder = window.WebKitBlobBuilder || window.MozBlobBuilder;
+			var bb = new BlobBuilder();
+			bb.append(contents);
+			return bb.getBlob(mime_type);
+		}
+	}
+	
+	//from https://stackoverflow.com/a/35251739 , adapted for backwards compatibility with Blob <- BlobBuilder
+	function helper_download_file(file_name, contents, mime_type){
+		mime_type = mime_type || "text/plain";
+
+		var blob = helper_new_blob(contents, {type: mime_type});
+
+		var dlink = document.createElement('a');
+		dlink.download = file_name;
+		dlink.href = window.URL.createObjectURL(blob);
+		dlink.onclick = function(e) {
+			// revokeObjectURL needs a delay to work properly
+			var that = this;
+			setTimeout(function() {
+				 window.URL.revokeObjectURL(that.href);
+			}, 1500);
+		};
+
+		dlink.click();
+		dlink.remove();
+	}
+	
+</script>
+</head>
+<body>
+	<table border>
+		<thead>
+			<tr>
+				<th colspan="7">
+					commit strands
+				</th>
+			</tr>
+			<tr>
+				<td><label for="ui_commit_ordering_strands_file_input">add from file(s)</label></td>
+				<td colspan="5">
+					<input type="file" id="ui_commit_ordering_strands_file_input" multiple onchange="readOrderedCommitStrandsThen(this.files, appendOrderedCommitStrandsThen, updateCommitStrandCoverageThen)">
+				</td>
+				<td><button onclick="const exported = export_commit_strand_info('json'); if(exported === null) return; helper_download_file(exported.file_name, exported.data, 'text/plain')">export as json</button></td>
+			</tr>
+			<tr id="ui_commit_ordering_strands_loaded_headers-1" hidden>
+				<th rowspan="2">
+					reorder<br><input type="button" value="all auto" onclick="reorderCommitStrandsAllAutoByRepository()"
+				</th>
+				<th rowspan="2">
+					repository
+				</th>
+				<th rowspan="2">
+					strand name
+				</th>
+				<th colspan="3">
+					#commits (hover to view)
+				</th>
+				<th rowspan="2">
+					commit names
+				</th>
+			</tr>
+			<tr id="ui_commit_ordering_strands_loaded_headers-2" hidden>
+				<th>
+					in metrics
+				</th>
+				<th>
+					not in metrics
+				</th>
+				<th>
+					all
+				</th>
+			</tr>
+		</thead>
+		<tbody id="ui_commit_ordering_strands">
+		</tbody>
+		<tbody id="ui_commit_ordering_strand_coverage_header" hidden><tr><th colspan='6'>commits only in metrics:</th></tr></tbody>
+		<tbody id="ui_commit_ordering_strand_coverage">
+		</tbody>
+	</table>
+	<table border>
+		<thead>
+			<tr>
+				<th colspan="4">metrics</th>
+			</tr>
+		</thead>
+		<tr>
+			<td><label for="ui_metrics_file_input">load</label></td>
+			<td><input type="file" id="ui_metrics_file_input" multiple onchange="readMetricsThen(this.files, updateEntryCountOutputThen, /*updateEntriesOutputThen,*/ updateCommitStrandCoverageThen, rebuildPlottingPipelineThen)"></td>
+			<td id="ui_metric_entry_count_output">no entries loaded yet</td>
+			<td><button onclick="const exported = export_metrics_entries('json'); if(exported === null) return; helper_download_file(exported.file_name, exported.data, 'text/plain')">export as json</button></td>
+		</tr>
+	</table>
+	<!-- table border id="ui_property_overview_output"></table -->
+	<table border id="ui_plotting_pipeline_table" hidden>
+		<thead>
+			<tr>
+				<th colspan='4'>plotting pipeline</th>
+			</tr>
+			<tr>
+				<td colspan='3'>
+					<button onclick="const exported = export_plotting_pipeline_config('json'); if(exported === null) return; helper_download_file(exported.file_name, exported.data, 'text/plain')">export pipeline configuration</button>
+				</td>
+				<td>
+					<label for="ui_plotting_pipeline_config_import">import pipeline configuration</label>
+					<input type="file" id="ui_plotting_pipeline_config_import" onchange="replacePlottingPipelineFromConfigFile(this.files[0])">
+				</td>
+			</tr>
+			<tr>
+				<th>reorder<br><button onclick='reorderPipelineAllAutoByOperation()'>all auto</button></th>
+				<th>type</th>
+				<th>property (type)</th>
+				<th>kind</th>
+			</tr>
+		</thead>
+		<tbody id="ui_plotting_pipeline_operations">
+		</tbody>
+	</table>
+	
+	<table border>
+		<thead>
+			<tr>
+				<th colspan='4'>Actions</th>
+			</tr>
+		</thead>
+		<tbody>
+			<tr>
+				<td>
+					<input type="checkbox" id="ui_enable_custom_merge_on_entry_collision" checked>custom merge strategy<br>on entry collision
+				</td>
+				<td>
+					for every collision<br>call returned function with<br>(entry_a, entry_b)<br>to get an object<br>merged_entry:
+				</td>
+				<td colspan="2">
+					<textarea id="ui_function_custom_merge_on_entry_collision">
+function median(values) {
+	const number_tuples = [];
+	var tuple_index = 0;
+	for(const value of values){
+		const number = Number(value);
+		if(number === null) throw "failed to merge entries: failed to find median: list contained non-number";
+		if(number !== number) throw "failed to merge entries: failed to find median: list contained NaN";
+		number_tuples.push([number, tuple_index]);
+		++tuple_index;
+	}
+	number_tuples.sort(function(a, b){
+		if(a[0] < b[0]) return -1;
+		else if(a[0] > b[0]) return 1;
+		else return 0;
+	});
+	const half_len = number_tuples.length/2;
+	if(number_tuples.length % 2 == 0){
+		//we have to do math, can't keep it a string
+		return (number_tuples[half_len-1][0] + number_tuples[half_len][0])/2;
+	}else{
+		//keep it a string (in case it was one) if we can
+		return values[number_tuples[Math.floor(half_len)][1]];
+	}
+}
+function alreadyOrJsonParseArrayOrNull(value) {
+	//console.log("trying to parse", value);
+	var array = undefined;
+	if((typeof value) === 'string') {
+		try {
+			array = JSON.parse(value);
+		} catch(parsing_error) {
+			//console.log("-> JSON parsing failure");
+			return null;
+		}
+	} else {
+		//console.log("(not a string)");
+		array = value;
+	}
+	if(!Array.isArray(array)){
+		//console.log("-> not an array");
+		return null;
+	}
+	//console.log("-> is an array");
+	return array;
+}
+const lazy_merges = new Map();
+return function(entry_a, entry_b) {
+	if((entry_a['RUN-max-execution-time-seconds-list'] !== undefined)) {
+		if(entry_b['RUN-max-execution-time-seconds-list'] === undefined){
+			throw "entries incompatible? trying to merge pre-aggregated and non-aggregated?";
+		}
+		// old code for pre-aggregated entries
+		const merged_entry = {};
+		
+		function add_concat_merge(key){
+			merged_entry[key] = JSON.stringify(JSON.parse(entry_a[key]).concat(JSON.parse(entry_b[key])));
+		}
+		add_concat_merge('RUN-max-execution-time-seconds-list');
+		add_concat_merge('RUN-mean-execution-time-seconds-list');
+		add_concat_merge('RUN-median-execution-time-seconds-list');
+		add_concat_merge('RUN-min-execution-time-seconds-list');
+		add_concat_merge('RUN-total-number-repititions-list');
+		add_concat_merge('RUN-valid-number-repititions-list');
+		
+		function add_median_from_list(common_key_prefix){
+			merged_entry[common_key_prefix+'-median'] =
+				median(JSON.parse(merged_entry[common_key_prefix+'-list']));
+		}
+		add_median_from_list('RUN-max-execution-time-seconds');
+		add_median_from_list('RUN-mean-execution-time-seconds');
+		add_median_from_list('RUN-median-execution-time-seconds');
+		add_median_from_list('RUN-min-execution-time-seconds');
+		add_median_from_list('RUN-total-number-repititions');
+		add_median_from_list('RUN-valid-number-repititions');
+		
+		function add_average_from_list(common_key_prefix){
+			const list = JSON.parse(merged_entry[common_key_prefix+'-list']);
+			var total_value = 0;
+			for(value of list){
+				total_value += Number(value);
+			}
+			merged_entry[common_key_prefix+'-average'] = total_value/list.length;
+		}
+		add_average_from_list('RUN-median-execution-time-seconds')
+		
+		function add_trivial_string_merge(key){
+			merged_entry[key] = "merged("+entry_a[key]+","+entry_b[key]+")";
+		}
+		add_trivial_string_merge('RUN-id');
+		
+		return merged_entry;
+	} else {
+		const merged_entry = {};
+		const in_a = new Map();
+		for(const key in entry_a) {
+			if(entry_b[key] === undefined){
+				throw "failed to merge: entry_b is missing key '"+key+"'";
+			}
+		}
+		for(const key in entry_b) {
+			if(entry_a[key] === undefined){
+				throw "failed to merge: entry_a is missing key '"+key+"'";
+			}
+			const from_a = entry_a[key];
+			const from_b = entry_b[key];
+			const array_from_a = alreadyOrJsonParseArrayOrNull(from_a);
+			const array_from_b = alreadyOrJsonParseArrayOrNull(from_b);
+			if((array_from_a === null) !== (array_from_b === null)) {
+				throw "failed to merge: key '"+key+"' is only array-parseable for one entry and not the other";
+			}
+			if(array_from_a === null){
+				if(from_a == from_b){
+					merged_entry[key] = from_a;
+				} else {
+					merged_entry[key] = "merged("+from_a+","+from_b+")";
+					if(lazy_merges.get(key) === undefined) {
+						console.log("lazily merging mismatching property '"+key+"'");
+						lazy_merges.set(key, true);
+					}
+				}
+			} else {
+				merged_entry[key] = array_from_a.concat(array_from_b);
+			}
+		}
+		return merged_entry;
+	}
+};</textarea>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<!--button-->(TODO) export as string<!--/button--> <!-- TODO: decouple this part of drawMetricsTest() from rendering so the user doesn't need to re-render everything just to update the string output -->
+				</td>
+				<td>
+					for every figure<br>call returned function with<br>(figure, dataset, minimum_in_figure)<br>to get an array<br>[ascending_ordering_key, string]:
+				</td>
+				<td>
+					<textarea id="ui_function_input_per_figure_dataset_minimum">
+//var index = 0;
+return function(figure, dataset, min_value_in_dataset_data) {
+	//++index;
+	const last_value = dataset.data[dataset.data.length-1];
+	const ratio_last_to_minimum = last_value/min_value_in_dataset_data;
+	const result = figure.prefix_string + ": " + dataset.label + ": last value is " + (ratio_last_to_minimum*100).toPrecision(4) + "% of min\n";
+	return [ratio_last_to_minimum, result];
+};</textarea>
+				</td>
+				<td>
+					result: <textarea readonly="" id="ui_function_output_per_figure_dataset"></textarea>
+				</td>
+			</tr>
+			<tr>
+				<td colspan='4'>
+					<button onclick="drawMetricsTest()">render</button>
+						on canvases of size
+						<input type="text" id="ui_canvas_width_field">x<input type="text" id="ui_canvas_height_field">
+						<input type="checkbox" id="ui_canvas_use_chart_js" checked onchange="document.getElementById('ui_canvas_use_chart_js_display').innerHTML = this.checked ? 'with' : 'without'"><span id="ui_canvas_use_chart_js_display">with</span> chart.js,
+						displayed in a box with <input type="text" id="ui_canvases_div_height_field" style="width: 3em" onchange="document.getElementById('ui_canvases').style.height = this.value+'px'"> pixels of height.
+						<br>
+					<input type="checkbox" id="ui_canvas_include_y_0" checked onchange="for(const instance of lastDrawMetricsTestChartInstances) {instance.config.options.scales.y.beginAtZero = this.checked; instance.update();}"> always include y=0 in range
+				</td>
+			</tr>
+		</tbody>
+	<!-- br><button onclick="">export highest % of min per figure</button TODO -->
+	</table>
+	
+	<div id="ui_canvases" style="overflow-y: scroll; margin-top: 12px;">
+	</div>
+	<script type="text/javascript">
+		document.getElementById('ui_canvas_width_field').value = window.screen.availWidth * 3/4
+		document.getElementById('ui_canvas_height_field').value = window.screen.availHeight * 3/4
+		
+		const dpr = window.devicePixelRatio === undefined ? 1 : window.devicePixelRatio;
+		const cdhf = document.getElementById('ui_canvases_div_height_field')
+		cdhf.value = window.screen.availHeight * dpr;
+		cdhf.onchange();
+	</script>
+	
+	<!-- debugging insert start -- >
+		<canvas id="myChart" width="400" height="400"></canvas>
+		<script>
+		delayed_script = function(){
+		var ctx = document.getElementById('myChart').getContext('2d');
+		global_myChart = new Chart(ctx, {
+			 type: 'line',
+			 data: {
+				  labels: ['Red', 'also Red'],
+				  datasets: [
+					{
+						label: '# of Votes',
+						data: [4, 12, 19, 3, 5, 2, 3],
+					},
+					{
+						label: '# of Votes',
+						data: [0, 4, 12, 19, 3, 5, 2, 3],
+					},
+					{
+						label: '# of Votes',
+						data: [12, 19, 3, 5, 2, 3],
+					},
+					{
+						label: '# of Votes',
+						data: [19, 3, 5, 2, 3],
+					},
+				  ],
+			 },
+			 options: {
+				 responsive: false,
+			 }
+		});
+		};
+		</script>
+		<button onclick="delayed_script()">activate</button>
+	< !-- debugging insert end -->
+</body>
+</html>
