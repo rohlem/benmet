@@ -1,0 +1,9 @@
+This was the real use case benmet was used in.
+The code uses `benmet.step_templates`, which I didn't end up liking.
+I think implementing the same logic in the step scripts themselves is probably more readable, even if you end up repeating yourself, but it is what it is.
+
+The steps require two repositories (add them using benmet's `add-repos` command):
+ - Open MPI: https://github.com/open-mpi/ompi.git
+ - A private development version of ReproMPI. The public version is https://github.com/hunsa/reprompi.git , however you'll have to adjust the parameters to not use the ones that aren't implemented there.
+
+I also frankly don't know what libraries and further setup you need to build Open MPI. I just know that this build procedure already worked on the server that I ran it on.
