@@ -185,7 +185,7 @@ local pairs = pairs -- table_restore_from_backup can temporarily clear the globa
 			'os',
 			'package',
 			-- global variables set by benmet
-			'benmet_disable_indirection_layer', 'benmet_ensure_package_path_entries_are_absolute', 'benmet_launch_steps_as_child_processes', 'benmet_relative_path_prefix', 'benmet_util_skip_library_imports',
+			'benmet_disable_indirection_layer', 'benmet_ensure_package_path_entries_are_absolute', 'benmet_launch_steps_as_child_processes', 'benmet_relative_path_prefix', 'benmet_util_skip_library_imports', 'benmet_debug_output_to_file',
 			-- global variables, ordered lexicographically
 			'_VERSION', 'arg',
 			-- functions, ordered lexicographically

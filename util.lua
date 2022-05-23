@@ -54,28 +54,38 @@ util.incdl, util.decdl, util.assertdecdl = incdl, decdl, assertdecdl
 local actual_debug_detail_level = util.debug_detail_level
 util.debug_detail_level = 0
 	-- debugging, logging
+		local debug_write = _G.benmet_debug_output_to_file
+		if debug_write then
+			local debug_output_file = assert(io.open(debug_write, 'w+'), "failed to open file '"..tostring(debug_write).."' to write debug output to")
+			util.debug_output_file = debug_output_file
+			debug_write = function(x) debug_output_file:write(tostring(x).."\n") end
+			debug_write"=={debug output start}=="
+		else
+			debug_write = print
+		end
+		
 		function util.debugprint(x, indent, level, already_visited)
 			if (level or util.debug_detail_level) <= detail_level then return end --skip if we're too deep already
 			indent = indent or string.rep(" ", detail_level)
 			if type(x) ~= 'table' then
-				print(indent..(--[[type(x) == 'string' and string.format("%q", x) or]] tostring(x)))
+				debug_write(indent..(--[[type(x) == 'string' and string.format("%q", x) or]] tostring(x)))
 				return
 			end
 			already_visited = already_visited or {0}
 			if already_visited[x] then
-				print(indent .. already_visited[x])
+				debug_write(indent .. already_visited[x])
 				return
 			end
 			already_visited[x] = "(table #"..already_visited[1]..")"
 			already_visited[1] = already_visited[1]+1
-			print(indent .. already_visited[x] .. " = {")
+			debug_write(indent .. already_visited[x] .. " = {")
 			for k,v in pairs(x) do
 				util.debugprint(k, indent .. " ", level, already_visited)
-				print(indent .. "=>")
+				debug_write(indent .. "=>")
 				util.debugprint(v, indent .. " ", level, already_visited)
-				print(indent .. ",")
+				debug_write(indent .. ",")
 			end
-			print(indent .. "}")
+			debug_write(indent .. "}")
 		end
 		
 		function util.logprint(x, indent)

@@ -108,6 +108,8 @@ local help_list_commands = function()
 	for k,v in pairs(actual_commands) do
 		print("(Warning: unexpected command found: '"..k.."')")
 	end
+	
+	print("\nglobal (debug) flags:\n   --debug-output-to-file : append debug output to the file at the given path\n   --debug-detail-level : set the debug level (increase for more details, -1 to disable)")
 end
 
 local help_print_options = function(option_names, from_options, infix, shorthands_for)
@@ -214,6 +216,8 @@ if selected_command_structure.options then
 end
 local parsed_args = {}
 
+
+local benmet_debug_detail_level = -1
 -- loop over program arguments
 local arg_i = 2
 if selected_command_structure.allow_anything_as_args_verbatim and arg[arg_i] == '--help' then
@@ -234,39 +238,62 @@ while arg_i <= #arg do
 			return
 		end
 		local option_value = equals_index and string.sub(next_arg, equals_index+1)
-		
-		-- look up the option
-		local option_entry = selected_command_structure.options[option_name]
-		if not option_entry then
-			return usage_error("Unrecognized option '--"..tostring(option_name).."'.", root_command)
-		end
-		
-		if option_entry.forward_as_arg or option_entry.is_flag then
-			if option_value then
-				return usage_error("--option=value syntax not supported for "..(option_entry.forward_as_arg and "forwarded (grouped)" or "flag").." option '"..option_name.."'.", root_command)
-			end
-			if option_entry.is_flag then
-				local shorthand_for = option_entry.shorthand_for
-				if shorthand_for then
-					for i = 1, #shorthand_for do
-						parsed_options[shorthand_for[i]] = true
-					end
-				else
-					parsed_options[option_name] = true
-				end
-				added_to_options = true
-			else
-				assert(option_entry.forward_as_arg)
-			end
-		else
-			added_to_options = true
+		if option_name == 'debug-output-to-file' then -- special handling for '--debug-output-to-file'
+			if _G.benmet_debug_output_to_file then usage_error("multiple '--debug-output-to-file' options given") end
 			if not option_value then
 				arg_i = arg_i + 1
-				assert(#arg >= arg_i, "missing required argument to option '"..option_name.."'")
-				option_value = arg[arg_i]
+				option_value = arg[arg_i+1]
 			end
-			local parsed_option_values = parsed_options[option_name]
-			parsed_option_values[#parsed_option_values+1] = option_value
+			if not option_value then usage_error("required value missing from option '--debug-output-to-file'") end
+			_G.benmet_debug_output_to_file = option_value
+			added_to_options = true
+		elseif option_name == 'debug-detail-level' then -- special handling for '--debug-detail-level'
+			if not benmet_debug_detail_level then usage_error("multiple '--debug-detail-level' options given") end
+			if not option_value then
+				arg_i = arg_i + 1
+				option_value = arg[arg_i+1]
+			end
+			if not option_value then usage_error("required value missing from option '--debug-detail-level'") end
+			option_value = tonumber(option_value)
+			if not option_value then usage_error("value of option '--debug-detail-level' must be a number") end
+			benmet_debug_detail_level = option_value
+			added_to_options = true
+			
+		else -- non-special option
+			
+			-- look up the option
+			local option_entry = selected_command_structure.options[option_name]
+			if not option_entry then
+				return usage_error("Unrecognized option '--"..tostring(option_name).."'.", root_command)
+			end
+			
+			if option_entry.forward_as_arg or option_entry.is_flag then
+				if option_value then
+					return usage_error("--option=value syntax not supported for "..(option_entry.forward_as_arg and "forwarded (grouped)" or "flag").." option '"..option_name.."'.", root_command)
+				end
+				if option_entry.is_flag then
+					local shorthand_for = option_entry.shorthand_for
+					if shorthand_for then
+						for i = 1, #shorthand_for do
+							parsed_options[shorthand_for[i]] = true
+						end
+					else
+						parsed_options[option_name] = true
+					end
+					added_to_options = true
+				else
+					assert(option_entry.forward_as_arg)
+				end
+			else
+				added_to_options = true
+				if not option_value then
+					arg_i = arg_i + 1
+					assert(#arg >= arg_i, "missing required argument to option '"..option_name.."'")
+					option_value = arg[arg_i]
+				end
+				local parsed_option_values = parsed_options[option_name]
+				parsed_option_values[#parsed_option_values+1] = option_value
+			end
 		end
 	end
 	
@@ -342,5 +369,6 @@ end
 
 local features = require "benmet.features"
 util = require "benmet.util"
+util.debug_detail_level = benmet_debug_detail_level
 
 os.exit(command_implementation(features, util, parsed_args, parsed_options))
