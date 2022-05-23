@@ -34,7 +34,7 @@ The basic usage pattern is:
 
 - configure text and graphical output as you need it, then click the button 'render'. Note this will probably freeze your browser for a bit until it's done processing.
 
-Plotting options "boxplot" and "derive y axes (advanced)" also work, but are hard-coded for my use-case to remove the first 20% of values as warm-up. Someone needs to add UI + logic for configuring for that. Maybe view.html would benefit from a UI overhaul in general. Ideas and implementations welcome!
+Plotting options "boxplot" and "derive y axes (advanced)" also work, but are hard-coded for my use-case to remove the first 20% of values as warm-up. Someone needs to add UI + logic for configuring that. Maybe view.html would benefit from a UI overhaul in general. Ideas and implementations welcome!
 
 ## Licensing
 
