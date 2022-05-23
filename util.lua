@@ -47,7 +47,8 @@ util.debug_detail_level = 0
 local detail_level = 0
 local incdl = function() detail_level = detail_level+1 end
 local decdl = function() detail_level = detail_level-1 assert(detail_level >= 0) end
-util.incdl, util.decdl = incdl, decdl
+local assertdecdl = function(condition, error_message) if not condition then decdl() error(error_message) end return condition end
+util.incdl, util.decdl, util.assertdecdl = incdl, decdl, assertdecdl
 
 -- setup features
 local actual_debug_detail_level = util.debug_detail_level
@@ -382,7 +383,7 @@ util.debug_detail_level = 0
 			assert(select('#', ...) == 0, "superfluous argument passed to execute_command, did you mean execute_command_at?")
 			util.logprint("executing: "..cmd.."\nenv-override: "..env_override_string)
 			incdl()
-				local read_pipe = assert(io.popen(env_override_string..cmd))
+				local read_pipe = assertdecdl(io.popen(env_override_string..cmd))
 				local program_output = read_pipe:read('*a')
 				util.debugprint("the program wrote: "..program_output)
 				local program_success, exit_type, return_status = read_pipe:close()
@@ -1017,7 +1018,7 @@ util.debug_detail_level = 0
 		function util.remove_file(path)
 			util.logprint("deleting file: '"..path.."'")
 			incdl()
-				assert(os.remove(path))
+				assertdecdl(os.remove(path))
 			decdl()
 		end
 		
@@ -1041,7 +1042,7 @@ util.debug_detail_level = 0
 			path = util.in_quotes(path)
 			util.logprint("creating new directory: "..path)
 			incdl()
-				assert(util.execute_command("mkdir "..path..util.discard_stderr_suffix))
+				assertdecdl(util.execute_command("mkdir "..path..util.discard_stderr_suffix))
 			decdl()
 		end
 		

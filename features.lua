@@ -401,7 +401,7 @@ local step_run_query_dir_status = function(step_run_path, step_run_hash_params)
 	-- read the parameters the existing directory declares
 	local cached_params_path = step_run_path.."/params_in.txt"
 	local exists, cached_params = pcall(util.read_param_file_new_compat_deserialize, cached_params_path, "input parameters (params_in.txt) of step run directory '"..step_run_path.."' do not exist, cannot check for hash collision")
-	if not exists then return false, false end
+	if not exists then util.decdl() return false, false end
 	
 	-- if we expected different parameters, it's a hash collision and not an actual cache hit
 	local run_dir_exists = util.tables_shallow_equal(step_run_hash_params, util.tables_intersect(cached_params, step_run_hash_params))
