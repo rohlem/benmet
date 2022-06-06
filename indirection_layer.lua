@@ -386,7 +386,9 @@ local prefix_inverse_indirection_if_relative = function(path)
 
 local wrap_shell_command = function(command)
 	return command and (command == "" and command
-			or os_env_override_string.."cd "..util.in_quotes(relative_path_indirection_prefix).." && ( "..command.." )")
+			or os_env_override_string..(
+				relative_path_indirection_prefix ~= "" and "cd "..util.in_quotes(relative_path_indirection_prefix).." && ( "..command.." )"
+				or command))
 end
 
 local original_table_by_original_functions_table = {}
