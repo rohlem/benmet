@@ -1,0 +1,6 @@
+[submodule "examples/tutorial/Lua/1-setup/repos/benmet-tutorial-stub-numgen"]
+	path = examples/tutorial/Lua/1-setup/repos/benmet-tutorial-stub-numgen
+	url = https://github.com/rohlem/benmet-tutorial-stub-numgen
+[submodule "examples/tutorial/Lua/2-execution/repos/benmet-tutorial-stub-numgen"]
+	path = examples/tutorial/Lua/2-execution/repos/benmet-tutorial-stub-numgen
+	url = https://github.com/rohlem/benmet-tutorial-stub-numgen

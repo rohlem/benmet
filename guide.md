@@ -1,5 +1,5 @@
 This file describes the principle workings of `benmet`.
-For a real-world example (with less documentation) see ['examples/s-reprompi'](./examples/s-reprompi).
+For a step-by-step example on how to use it see [examples/tutorial](./examples/tutorial), for a real-world example (with less documentation) see [examples/s-reprompi](./examples/s-reprompi).
 
 # Basic idea
 
@@ -36,7 +36,7 @@ For simplicity, `input parameters` are just named string values, that is, they a
 
 A `step` program is always invoked with exactly one input parameter, named the `step command`, from the following list:
 - `inputs`: output the input parameters of this step (with their default values, if any)
-- `status`: output the run's current status to stdout, as one of `startable`|`pending`|`continuable`|`finished`
+- `status`: output the run's current status to stdout, as one of `startable`|`pending`|`continuable`|`finished`|`error*`
 - `start`: start a new run (status should be `startable`)
 - `cancel`: cancel pending asynchronous operations (status should be `pending`)
 - `continue`: continue if the last asynchronous operation has completed (status should be `continuable`)

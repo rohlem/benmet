@@ -9,7 +9,9 @@ Execute it using a Lua interpreter (not included) from any directory (workspace)
 
 The program is first and foremost a proof-of-concept prototype. Although it is actually quite usable, you'll probably find some rough edges.
 
-For details on what it does see ['guide.md'](./guide.md), for a real-world example (with less documentation) see [examples/s-reprompi](./examples/s-reprompi).
+For details on what it does see ['guide.md'](./guide.md), for a step-by-step example on how to use it see [examples/tutorial](./examples/tutorial), for a real-world example (with less documentation) see [examples/s-reprompi](./examples/s-reprompi).
+Note that the examples directory makes use of git submodules, so clone this repository with the `--recursive` flag to make them immediately usable.
+
 You may also consult highly-detailed help text by executing it with the `--help` flag argument, as well as the comments present throughout the source code.
 
 While I'm open for addressing issues and pull request within the next couple of months, the program is ___basically feature-complete___ (from my point of view)___, and no longer under active development___.
@@ -38,7 +40,7 @@ Plotting options "boxplot" and "derive y axes (advanced)" also work, but are har
 
 ## Licensing
 
-View.html uses [`chart.js`](https://www.chartjs.org/) and [`charjs-chart-boxplot`](https://github.com/sgratzl/chartjs-chart-boxplot), which are vendored (included) in this repository for convenience.
+view.html uses [`chart.js`](https://www.chartjs.org/) and [`charjs-chart-boxplot`](https://github.com/sgratzl/chartjs-chart-boxplot), which are vendored (included) in this repository for convenience.
 ___Note that my licensing (the UNLICENSE) DOES NOT apply to them.___
 
 All of my own code is UNLICENSE-d, meaning dedicated to the public domain, as stated in the file ['UNLICENSE'](./UNLICENSE).
