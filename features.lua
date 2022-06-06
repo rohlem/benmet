@@ -183,8 +183,8 @@ function features.step_query_status(step_name, step_run_path)
 		return 'finished'
 	end
 	-- execute the run script which determines the run's status
-	local output = step_invoke_command_raw(step_name, step_run_path, 'status', "../../")
-	assert(output, "failed to query status of step '"..step_name.."' for run path '"..step_run_path.."'")
+	local output, return_status, error_details = step_invoke_command_raw(step_name, step_run_path, 'status', "../../")
+	assert(output, "failed to query status of step '"..step_name.."' for run path '"..step_run_path.."'"..(error_details and ":\n"..error_details or ""))
 	return type(output) == 'string' and util.cut_trailing_space(output)
 		or output
 end
