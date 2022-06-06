@@ -157,12 +157,12 @@ end
 local step_query_inputs_cache = {}
 -- query the results of invoking command 'inputs' of the given step, potentially from cache
 function features.step_query_inputs(step_name)
-	local inputs = step_query_inputs_cache[step_name]
+	local inputs, return_status, error_details = step_query_inputs_cache[step_name]
 	if not inputs then
-		inputs = step_query_inputs_uncached(step_name)
+		inputs, return_status, error_details = step_query_inputs_uncached(step_name)
 		step_query_inputs_cache[step_name] = inputs
 	end
-	return inputs
+	return inputs, return_status, error_details
 end
 local step_query_inputs_template_table_cache = {}
 -- query and parse the results of invoking command 'inputs' of the given step, potentially from cache

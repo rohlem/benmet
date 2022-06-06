@@ -737,7 +737,7 @@ local program_command_structures = {
 			if command == 'inputs' then -- special case: this is the only command that doesn't require a run directory
 				assert(not run_id_override, "command 'inputs' disregards all parameters, incompatible with option '--with-run-id'")
 				assert(not param_file_path, "command 'inputs' disregards all parameters, incompatible with option '--param-file'")
-				local output, return_status = features.step_query_inputs(target_step_name)
+				local output, return_status, error_details = features.step_query_inputs(target_step_name)
 				if not output then
 					local target_step_path = relative_path_prefix.."steps/"..target_step_name
 					if not util.directory_exists(target_step_path) then
@@ -747,7 +747,7 @@ local program_command_structures = {
 						if not util.file_exists(target_step_run_script_path) then
 							print("build step '"..target_step_name.."' not available (no run script '"..target_step_run_script_path.."')")
 						else
-							print("failed to run build step command '"..command.."'")
+							print("failed to run build step command '"..command.."'"..(error_details and ":\n"..error_details or ""))
 						end
 					end
 				else
