@@ -2,7 +2,7 @@ assert(#arg == 1, "incorrect number of arguments")
 local command = arg[1]
 
 if command == 'inputs' then
-	print([[{"RUN-id":""}]])
+	print("{}")
 	os.exit(0)
 end
 

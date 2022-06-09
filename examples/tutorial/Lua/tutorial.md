@@ -5,11 +5,12 @@ For details on the inner workings of `benmet`, see ['guide.md'](./guide.md), for
 
 This example samples a simple random number generator program.
 The state resulting after each section is provided in a corresponding subdirectory:
-- [1-setup](./1-setup) has the number generator repository added.
-- [2-execution](./2-execution) has a single step configured that can be used for executing the number generator program (Lua version).
-- [3-sampling](./3-sampling) has a second step added for copying identified results into a specified directory. It also showcases parameter passing between the two steps.
-- [4-build](./4-build) contains a third step for building the C version of the generator program (C compiler not included).
-- [5-configuration](./5-configuration) extends every step by additional configuration parameters.
+- [1-setup](./1-setup) contains the number generator repository in the expected location (inside "./repos").
+- [2-execution-part-1](./2-execution-part-1) has a single step configured that can be used for executing the number generator program (its Lua version) with a fixed string of default arguments.
+- [3-execution-part-2](./3-execution-part-2) adds parameters to change the program invocation arguments, and introduces a run id to make the execution of the program repeat by default.
+- [4-sample-collection](./4-sample-collection) has a second step added for copying identified results into a specified directory. It also showcases parameter passing between the two steps.
+- [5-build](./4-build) contains a third step for building the C version of the generator program (C compiler not included).
+- [6-configuration](./5-configuration) extends every step by additional configuration parameters.
 
 # Setup
 
@@ -26,7 +27,7 @@ Create an empty directory. We will execute `benmet` within this as a working dir
 The random number generator program is hosted in a separate repository at the URL https://github.com/rohlem/benmet-tutorial-stub-numgen .
 To clone this repository where it is accessible to step programs, execute `<benmet> add-repo https://github.com/rohlem/benmet-tutorial-stub-numgen` inside the created directory. This will clone it to the path `./repos/benmet-tutorial-stub-numgen`. Execute `<benmet> add-repo --help` to see further options.
 
-# Execution
+# Execution Part 1 - executing numgen.lua
 
 After the previous section "Setup", the number generator repository is now located at `./repos/benmet-tutorial-stub-numgen`.
 
@@ -59,9 +60,10 @@ The non-empty line identifies that the step `execute-numgen` is implemented by f
 We can now request a specific command from the step, for example:
 ```sh
 $ <benmet> step.do execute-numgen --command inputs
+failed to run build step command 'inputs'
 ```
 
-Because our script calls `error`, which exits with non-zero status, `benmet`'s output will contain `failed to run build step command 'inputs'`. So let's fix that next.
+Because our script calls `error`, which exits with non-zero status, `benmet`'s output will contain a failure message. So let's fix that next.
 
 ## implementing the 'inputs' command
 
@@ -162,9 +164,61 @@ finished
 
 Note that the working directory created for this purpose can be found under `./steps/execute-numgen/runs/`.
 
+# Execution Part 2 - parameters and repeating execution by default
+
+## adding input parameters
+
+Next we will discuss parameters. Every step execution has access to the set of parameters it is interested in, given in a file called `params_in.txt`.
+
+If you have executed the 'execute-numgen' step at least once in the last section, you should see a single directory under `./steps/execute-numgen/runs/` containing such a file. If you look into it, it will only contain the empty JSON object "{}".
+
+This is because our implementation of the 'inputs' command also returns an empty JSON object. If we add fields with defaults value to the 'inputs' response, those default values will be used to fill the execution's input parameters. For example, we can change the `print` command to the following:
+
+```lua
+print([[{
+"PARAM-numgen-noise-type":"w",
+"PARAM-numgen-filter-flag":"0",
+"PARAM-numgen-amount":"2"
+}]])
+```
+
+Here we use Lua's long string literal syntax "\[\[ ... \]\]" to allow quotation marks and line breaks; alternatively you could single-quote '' the string with \n as line ending, or prefix them with a backslash \\.
+
+If we query the 'inputs' command again, we will see the changed default values. Invoking the 'start' command will create a new run directory with a changed `params_in.txt` containing our default parameters.
+
+```sh
+$ <benmet> step.do execute-numgen --command inputs
+{
+"PARAM-numgen-noise-type":"w",
+"PARAM-numgen-filter-flag":"0",
+"PARAM-numgen-amount":"2"
+}
+
+$ <benmet> step.do execute-numgen --command start
+```
+
+However, our code still ignores these input paramters. If you check the `numgen_result.txt` file generated in the new run directory, it still contains 10 numbers rather than 2.
+
+We need to make our step program parse them and construct the program arguments accordingly. This can be done via the following code for the start command:
+
+```lua
+local input_params = util.read_param_file_new_compat_deserialize("params_in.txt")
+local argument_string = input_params["PARAM-numgen-noise-type"]
+	.." "..input_params["PARAM-numgen-filter-flag"]
+	.." "..input_params["PARAM-numgen-amount"]
+```
+
+Note that we skip checking these parameters here for brevity, since numgen.lua features built-in parameter checking.
+
+If you delete the run directory (or delete the file `params_out.txt` to reset the execution) and re-execute the 'start' command, the new `numgen_result.txt` file will only contain 2 numbers, as requested.
+
+```sh
+$ <benmet> step.do execute-numgen --command start
+```
+
 ## making the 'start' command repeat execution by default
 
-As our step `execute-numgen` has no input parameters, `benmet` will cache the first execution and never start a second run. Trying to execute the 'start' command again yields a corresponding message:
+As you may have noticed sooner or later, our 'execute-numgen' step currently still only wants to execute once. Subsequent executions are skipped:
 
 ```sh
 $ <benmet> step.do execute-numgen --command start
@@ -172,13 +226,13 @@ found cache hit with status 'finished', eliding execution
 finished
 ```
 
-As this is our sampling step however, we usually want a request for new samples to re-execute the program.
+This is because `benmet` recognizes parameterizations you have used before (by their hash, which is used as run directory name).
 
-The solution to this is to declare a special input parameter, named "RUN-id". This is a special parameter that always defaults to a unique value.
+For prerequisite steps, such as building a program from source code, this behaviour is pretty handy. However, as this is our sampling step , we usually want a request for new samples to re-execute the program.
 
-We can do this by adjusting the output printed by our 'inputs' command to `{"RUN-id":""}`. (You can either change the outer quotes, to `''`, or `[[` and `]]`, or use a backslash to escape nested quotation marks as `\"` ).
+The solution to this is to declare a special input parameter, named "RUN-id". `benmet` always defaults this parameter to a unique value.
 
-Upon this change, repeated execution of the start command should no longer result in cache hits, instead always creating a new run directory in `./steps/execute-numgen/runs/` .
+To do this, just add an entry `"RUN-id":""` to the 'inputs' command response. Upon this change, repeated execution of the start command should no longer result in cache hits, instead always creating a new run directory in `./steps/execute-numgen/runs/` .
 
 ```sh
 $ <benmet> step.do execute-numgen --command start
@@ -200,5 +254,25 @@ $ <benmet> step.do execute-numgen --command start --with-run-id="abc"
 found cache hit with status 'finished', eliding execution
 finished
 ```
+
+## manually setting parameters
+
+So far we've just been using the default values of our step's input parameters. To actually configure it, you can supply a parameter file, which is any file holding a single JSON object. For example, create a file `params_p7.json` with the following contents:
+
+```js
+{
+"PARAM-numgen-noise-type":"p",
+"PARAM-numgen-amount":"7"
+}
+```
+
+Parameters that are not supplied will be filled in by their default values. Note that requiring a parameter to be specified manually is not currently supported; a workaround is to assert that they differ from the empty string "" in the step program, erroring (non-zero exit) if they don't.
+
+We can now pass the parameterization from this file to `benmet` using the `--param-file` option:
+```
+$ <benmet> step.do execute-numgen --command start --param-file params_p7.json
+```
+
+The newly created run directory will have input parameters indicating 7 numbers of pink noise (type "p"), and the `numgen_result.txt` file will hold 7 numbers.
 
 You can also execute `<benmet> step.do --help` for further details on all supported options.
